@@ -1,0 +1,140 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // GLOBAL HELPERS
+    // -------------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 256;
+    }
+
+    function isUserVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true);
+    }
+
+    function isValidUser(data) {
+      return (data.userId is string && data.userId.size() <= 256) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 200)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
+             (!('role' in data) || (data.role in ['student', 'teacher'])) &&
+             (!('stats' in data) || (data.stats is map)) &&
+             (!('createdAt' in data) || (data.createdAt is timestamp)) &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp));
+    }
+
+    // -------------------------------------------------------------------------
+    // DEFAULT DENY
+    // -------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // USERS COLLECTION
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      
+      allow create: if isOwner(userId) && (
+        incoming().userId == userId &&
+        isValidUser(incoming())
+      );
+
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        // Allow updating profile fields including role
+        incoming().diff(existing()).affectedKeys().hasAny(['displayName', 'photoURL', 'stats', 'updatedAt', 'role', 'userId'])
+      );
+
+      // -----------------------------------------------------------------------
+      // TASKS SUBCOLLECTION
+      // -----------------------------------------------------------------------
+      match /tasks/{taskId} {
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId) && isValidId(taskId);
+        allow create: if isOwner(userId) && isValidId(taskId) && isValidTask(incoming());
+        allow update: if isOwner(userId) && isValidId(taskId) && isValidTask(incoming()) && (
+          incoming().diff(existing()).affectedKeys().hasAny(['title', 'time', 'duration', 'completed', 'verified', 'updatedAt', 'subject', 'priority', 'deadline', 'week', 'createdAt'])
+        );
+        allow delete: if isOwner(userId) && isValidId(taskId);
+
+        function isValidTask(data) {
+          return (!('title' in data) || (data.title is string && data.title.size() <= 200)) &&
+                 (!('time' in data) || (data.time is string && data.time.size() <= 100)) &&
+                 (!('completed' in data) || (data.completed is bool)) &&
+                 (!('verified' in data) || data.verified is bool) &&
+                 (!('duration' in data) || (data.duration is string && data.duration.size() <= 50)) &&
+                 (!('subject' in data) || (data.subject is string && data.subject.size() <= 100)) &&
+                 (!('week' in data) || (data.week is string && data.week.size() <= 100)) &&
+                 (!('priority' in data) || (data.priority in ['High', 'Medium', 'Low'])) &&
+                 (!('deadline' in data) || (data.deadline is string && data.deadline.size() <= 100)) &&
+                 (!('createdAt' in data) || (data.createdAt is timestamp)) &&
+                 (!('updatedAt' in data) || (data.updatedAt is timestamp));
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // RESOURCES SUBCOLLECTION
+      // -----------------------------------------------------------------------
+      match /resources/{resourceId} {
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId) && isValidId(resourceId);
+        allow create: if isOwner(userId) && isValidId(resourceId) && isValidResource(incoming());
+        allow update: if isOwner(userId) && isValidId(resourceId) && isValidResource(incoming()) && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'isBookmarked', 'subject'])
+        );
+        allow delete: if isOwner(userId) && isValidId(resourceId);
+
+        function isValidResource(data) {
+          return data.title is string && data.title.size() <= 300 &&
+                 data.type in ['PDF', 'DOCX', 'QUIZ', 'FOLDER'] &&
+                 (!('subject' in data) || (data.subject is string && data.subject.size() <= 100)) &&
+                 (!('isBookmarked' in data) || data.isBookmarked is bool);
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // CHAT HISTORY SUBCOLLECTION
+      // -----------------------------------------------------------------------
+      match /chatHistory/{sessionId} {
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId) && isValidId(sessionId);
+        allow create: if isOwner(userId) && isValidId(sessionId) && isValidChat(incoming()) && (
+          incoming().updatedAt == request.time
+        );
+        allow update: if isOwner(userId) && isValidId(sessionId) && isValidChat(incoming()) && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['messages', 'updatedAt', 'title']) &&
+          incoming().updatedAt == request.time
+        );
+        allow delete: if isOwner(userId) && isValidId(sessionId);
+
+        function isValidChat(data) {
+          return data.title is string && data.title.size() <= 200 &&
+                 data.messages is list && data.messages.size() <= 100 &&
+                 (data.messages.size() == 0 || (
+                   data.messages[0] is map && 
+                   data.messages[0].role in ['user', 'model'] && 
+                   data.messages[0].text is string
+                 ));
+        }
+      }
+    }
+  }
+}

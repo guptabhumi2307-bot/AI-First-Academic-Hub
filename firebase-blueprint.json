@@ -1,0 +1,94 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Store account details and study progress",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "teacher"] },
+        "stats": {
+          "type": "object",
+          "properties": {
+            "studyTime": { "type": "number" },
+            "goalsHit": { "type": "number" },
+            "totalNotes": { "type": "number" },
+            "avgAccuracy": { "type": "number" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email"]
+    },
+    "Task": {
+      "title": "Study Task",
+      "description": "User scheduled study tasks",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "time": { "type": "string" },
+        "duration": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "subject": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "time", "completed"]
+    },
+    "Resource": {
+      "title": "Academic Resource",
+      "description": "Uploaded or generated study materials",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["PDF", "DOCX", "QUIZ", "FOLDER"] },
+        "subject": { "type": "string" },
+        "size": { "type": "string" },
+        "isBookmarked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "type"]
+    },
+    "ChatSession": {
+      "title": "AI Chat Session",
+      "description": "Historical interactions with Rio AI",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string", "enum": ["user", "model"] },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "messages", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "User-specific study tasks"
+    },
+    "/users/{userId}/resources/{resourceId}": {
+      "schema": "Resource",
+      "description": "User-specific saved resources"
+    },
+    "/users/{userId}/chatHistory/{sessionId}": {
+      "schema": "ChatSession",
+      "description": "AI chat history for the user"
+    }
+  }
+}
