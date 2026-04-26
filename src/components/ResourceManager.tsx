@@ -5,12 +5,12 @@
 
 import React, { useState, useEffect } from "react";
 import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, where } from "firebase/firestore";
-import { db, isDemoMode } from "../lib/firebase";
+import { db, handleFirestoreError, isDemoMode } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { motion, AnimatePresence } from "motion/react";
-import { GoogleGenAI, Type } from "@google/genai";
+import { getGeminiModel } from "../lib/gemini";
+import { formatISTTime, formatISTDateTime } from "../lib/utils";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 import { 
   FileText, 
   Search, 
@@ -27,8 +27,44 @@ import {
   Bookmark,
   Loader2,
   ClipboardList,
-  MessageSquare
+  MessageSquare,
+  BookOpen,
+  PlayCircle,
+  ExternalLink,
+  Sparkles
 } from "lucide-react";
+
+interface Suggestion {
+  id: string;
+  title: string;
+  provider: string;
+  type: "BOOK" | "COURSE";
+  subject: string;
+  url: string;
+}
+
+const recommendations: Record<string, Suggestion[]> = {
+  "Chemistry": [
+    { id: "c1", title: "Organic Chemistry: Structure and Function", provider: "Vollhardt & Schore", type: "BOOK", subject: "Chemistry", url: "#" },
+    { id: "c2", title: "Chemistry of Life", provider: "edX / Harvard", type: "COURSE", subject: "Chemistry", url: "#" }
+  ],
+  "Biology": [
+    { id: "b1", title: "Campbell Biology", provider: "Lisa Urry et al.", type: "BOOK", subject: "Biology", url: "#" },
+    { id: "b2", title: "Introduction to Genetics", provider: "Coursera / Stanford", type: "COURSE", subject: "Biology", url: "#" }
+  ],
+  "Math": [
+    { id: "m1", title: "Calculus", provider: "James Stewart", type: "BOOK", subject: "Math", url: "#" },
+    { id: "m2", title: "Differential Equations Masterclass", provider: "MIT OpenCourseWare", type: "COURSE", subject: "Math", url: "#" }
+  ],
+  "Data Science": [
+    { id: "ds1", title: "Hands-On Machine Learning", provider: "Aurélien Géron", type: "BOOK", subject: "Data Science", url: "#" },
+    { id: "ds2", title: "Data Science Specialization", provider: "Coursera / Johns Hopkins", type: "COURSE", subject: "Data Science", url: "#" }
+  ],
+  "History": [
+    { id: "h1", title: "Sapiens: A Brief History of Humankind", provider: "Yuval Noah Harari", type: "BOOK", subject: "History", url: "#" },
+    { id: "h2", title: "Modern World History", provider: "Khan Academy", type: "COURSE", subject: "History", url: "#" }
+  ]
+};
 
 interface Resource {
   id: string;
@@ -68,74 +104,32 @@ export const ResourceManager = () => {
   const [activeCategory, setActiveCategory] = useState("Home");
   const [localResources, setLocalResources] = useState<Resource[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [resourceQuestion, setResourceQuestion] = useState("");
   const [resourceAnswer, setResourceAnswer] = useState("");
   const [isAsking, setIsAsking] = useState(false);
 
-  const askAboutResource = async () => {
-    if (!selectedResource || !resourceQuestion.trim()) return;
-    setIsAsking(true);
-    setResourceAnswer("");
-    try {
-      if (isDemoMode) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        setResourceAnswer("Based on the document metadata, this resource focuses heavily on neural architectures and backpropagation algorithms. Would you like a deeper explanation of any specific part?");
-        return;
-      }
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
 
-      const prompt = `Context: This is a study resource titled "${selectedResource.title}". Summary: ${selectedResource.insight?.summary}. User Question: ${resourceQuestion}`;
-      
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ text: prompt }]
-      });
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
 
-      setResourceAnswer(response.text || "Rio is slightly confused by the depth of this document. Try rephrasing!");
-    } catch (error) {
-      console.error("Resource Q&A failed:", error);
-    } finally {
-      setIsAsking(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processAndUploadFile(file);
     }
   };
 
-  useEffect(() => {
-    if (!user || isDemoMode) {
-      if (isDemoMode) {
-        setLocalResources(resources); // Fallback to initial dummy data in demo mode
-      }
-      return;
-    }
-
-    const q = query(
-      collection(db!, "users", user.uid, "resources"),
-      orderBy("createdAt", "desc")
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const resourcesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        time: doc.data().createdAt?.toDate() ? doc.data().createdAt.toDate().toLocaleDateString() : "Just now"
-      })) as Resource[];
-      setLocalResources(resourcesData);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  const filteredResources = localResources.filter(r => {
-    const matchesSearch = r.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          r.subject.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = activeCategory === "Home" || 
-                            r.subject === activeCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!user || !file) return;
-
+  const processAndUploadFile = async (file: File) => {
+    if (!user) return;
     setIsUploading(true);
     try {
       // 1. Read file as base64 for Gemini
@@ -147,25 +141,20 @@ export const ResourceManager = () => {
       const base64 = await base64Promise;
 
       // 2. Get AI Insight
-      const response = await ai.models.generateContent({
+      const model = getGeminiModel({
         model: "gemini-3-flash-preview",
-        contents: {
+      });
+
+      const response = await model.generateContent({
+        contents: [{
+          role: "user",
           parts: [
-            { text: `Analyze this study resource: ${file.name}. Provide a brief summary, key topics, and estimated difficulty level.` },
+            { text: `Analyze this study resource: ${file.name}. Provide a brief summary, key topics, and estimated difficulty level. Return as JSON with keys: summary, topics (array), difficulty.` },
             { inlineData: { mimeType: file.type || "application/pdf", data: base64 } }
           ]
-        },
+        }],
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              summary: { type: Type.STRING },
-              topic: { type: Type.ARRAY, items: { type: Type.STRING } },
-              difficulty: { type: Type.STRING, enum: ["Beginner", "Intermediate", "Advanced"] }
-            },
-            required: ["summary", "topic", "difficulty"]
-          }
         }
       });
       
@@ -212,14 +201,116 @@ export const ResourceManager = () => {
       alert(`Resource "${file.name}" indexed and analyzed by Rio!`);
     } catch (error) {
       console.error("Upload/Analysis Error:", error);
-      alert("Failed to sync or analyze resource. Rio might be busy!");
+      handleFirestoreError(error, 'write', `/users/${user.uid}/resources`);
     } finally {
       setIsUploading(false);
     }
   };
 
+  const askAboutResource = async () => {
+    if (!selectedResource || !resourceQuestion.trim()) return;
+    setIsAsking(true);
+    setResourceAnswer("");
+    try {
+      if (isDemoMode) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        setResourceAnswer("Based on the document metadata, this resource focuses heavily on neural architectures and backpropagation algorithms. Would you like a deeper explanation of any specific part?");
+        return;
+      }
+
+      const prompt = `Context: This is a study resource titled "${selectedResource.title}". Summary: ${selectedResource.insight?.summary}. User Question: ${resourceQuestion}`;
+      
+      const model = getGeminiModel({
+        model: "gemini-3-flash-preview",
+      });
+      
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+
+      setResourceAnswer((response as any).text || "Rio is slightly confused by the depth of this document. Try rephrasing!");
+    } catch (error) {
+      console.error("Resource Q&A failed:", error);
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user || isDemoMode) {
+      if (isDemoMode) {
+        setLocalResources(resources); // Fallback to initial dummy data in demo mode
+      }
+      return;
+    }
+
+    const q = query(
+      collection(db!, "users", user.uid, "resources"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const resourcesData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let timeLabel = "Just now";
+        if (data.createdAt?.toDate()) {
+          timeLabel = formatISTDateTime(data.createdAt.toDate());
+        }
+        return {
+          id: doc.id,
+          ...data,
+          time: timeLabel
+        };
+      }) as Resource[];
+      setLocalResources(resourcesData);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const filteredResources = localResources.filter(r => {
+    const matchesSearch = r.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          r.subject.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = activeCategory === "Home" || 
+                            r.subject === activeCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processAndUploadFile(file);
+    }
+    // Reset input
+    e.target.value = "";
+  };
+
   return (
-    <div className="space-y-8 pb-20">
+    <div 
+      className="space-y-8 pb-20 relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag Overlay */}
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-primary/20 backdrop-blur-md p-10"
+          >
+            <div className="bg-white p-20 rounded-[4rem] shadow-3xl text-center border-8 border-dashed border-primary max-w-2xl w-full">
+              <div className="w-32 h-32 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-8 animate-bounce">
+                <Upload className="w-16 h-16 text-primary" />
+              </div>
+              <h3 className="text-4xl font-black text-ink mb-4">Add to Library</h3>
+              <p className="text-xl text-ink-muted">Rio will index and summarize this resource automatically</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <motion.div
@@ -234,7 +325,9 @@ export const ResourceManager = () => {
           <div className="glass px-4 py-2.5 rounded-2xl flex items-center gap-6">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-primary" />
-              <span className="text-sm font-bold text-ink">9:51 PM</span>
+              <span className="text-sm font-bold text-ink">
+                {formatISTTime()}
+              </span>
             </div>
             <div className="h-4 w-[1px] bg-neutral-200" />
             <div className="flex items-center gap-2">
@@ -261,6 +354,7 @@ export const ResourceManager = () => {
           <div className="relative flex-1 lg:flex-none h-[52px]">
             <input 
               type="file" 
+              accept=".pdf,.docx,.doc,.txt,image/*"
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               onChange={handleUpload}
               disabled={isUploading}
@@ -291,6 +385,106 @@ export const ResourceManager = () => {
           </button>
         ))}
       </div>
+
+      {/* Rio's Recommendations Section */}
+      <AnimatePresence mode="wait">
+        {activeCategory !== "Home" && recommendations[activeCategory] && (
+          <motion.div
+            key={activeCategory}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="glass p-8 rounded-[2.5rem] border-primary/10 relative overflow-hidden group mb-4">
+              <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-primary/5 rounded-full blur-3xl group-hover:bg-primary/10 transition-colors" />
+              
+              <div className="flex items-center gap-4 mb-6 relative z-10">
+                 <div className="w-12 h-12 rounded-2xl bg-indigo-500 text-white flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <Sparkles className="w-6 h-6" />
+                 </div>
+                 <div>
+                    <h3 className="text-xl font-bold text-ink">Rio's Subject Guide</h3>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Curated Resources for {activeCategory}</p>
+                 </div>
+              </div>
+
+              <div className="space-y-8 relative z-10">
+                 {/* Grouped Recommendations */}
+                 {(() => {
+                   const books = recommendations[activeCategory].filter(s => s.type === "BOOK");
+                   const courses = recommendations[activeCategory].filter(s => s.type === "COURSE");
+                   
+                   return (
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                       {/* Books Section */}
+                       <div className="space-y-4">
+                         <div className="flex items-center gap-2 px-1">
+                           <BookOpen className="w-4 h-4 text-primary" />
+                           <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Books</h4>
+                         </div>
+                         <div className="space-y-3">
+                           {books.map(suggest => (
+                             <div key={suggest.id} className="bg-white/40 hover:bg-white rounded-2xl p-4 border border-white/60 transition-all group/card flex items-center justify-between shadow-sm">
+                               <div className="flex items-center gap-4">
+                                 <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center">
+                                   <BookOpen className="w-4 h-4" />
+                                 </div>
+                                 <div>
+                                   <h5 className="text-sm font-bold text-ink line-clamp-1 group-hover/card:text-primary transition-colors">{suggest.title}</h5>
+                                   <p className="text-[10px] text-ink-muted uppercase font-black">{suggest.provider}</p>
+                                 </div>
+                               </div>
+                               <button className="p-2 text-ink-muted hover:text-primary transition-colors">
+                                 <ExternalLink className="w-4 h-4" />
+                               </button>
+                             </div>
+                           ))}
+                         </div>
+                       </div>
+
+                       {/* Courses Section */}
+                       <div className="space-y-4">
+                         <div className="flex items-center gap-2 px-1">
+                           <PlayCircle className="w-4 h-4 text-indigo-500" />
+                           <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Courses</h4>
+                         </div>
+                         <div className="space-y-3">
+                           {courses.map(suggest => (
+                             <div key={suggest.id} className="bg-white/40 hover:bg-white rounded-2xl p-4 border border-white/60 transition-all group/card flex items-center justify-between shadow-sm">
+                               <div className="flex items-center gap-4">
+                                 <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-500 flex items-center justify-center">
+                                   <PlayCircle className="w-4 h-4" />
+                                 </div>
+                                 <div>
+                                   <h5 className="text-sm font-bold text-ink line-clamp-1 group-hover/card:text-primary transition-colors">{suggest.title}</h5>
+                                   <p className="text-[10px] text-ink-muted uppercase font-black">{suggest.provider}</p>
+                                 </div>
+                               </div>
+                               <button className="p-2 text-ink-muted hover:text-primary transition-colors">
+                                 <ExternalLink className="w-4 h-4" />
+                               </button>
+                             </div>
+                           ))}
+                         </div>
+                       </div>
+                     </div>
+                   );
+                 })()}
+                 
+                 <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
+                       <MessageSquare className="w-4 h-4 text-primary" />
+                    </div>
+                    <p className="text-xs font-bold text-ink-muted">
+                       "Hey! I've picked these based on your current {activeCategory} documents. They should help fill any conceptual gaps we found." <span className="text-primary cursor-pointer hover:underline">— Rio</span>
+                    </p>
+                 </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -374,8 +568,8 @@ export const ResourceManager = () => {
               </div>
 
               <div className="space-y-4">
-                <div className="p-5 bg-white/40 rounded-2xl border border-white/60">
-                   <p className="text-[10px] uppercase font-black text-ink-muted mb-2 tracking-widest">Document Insight</p>
+                <div className="p-5 bg-white/40 rounded-2xl border border-white/60 max-h-40 overflow-y-auto no-scrollbar">
+                   <p className="text-[10px] uppercase font-black text-ink-muted mb-2 tracking-widest sticky top-0 bg-white/40 backdrop-blur-sm py-1">Document Insight</p>
                    <p className="text-sm text-ink leading-relaxed font-medium italic">"{selectedResource.insight?.summary || "No automated summary available yet. Scanning complete."}"</p>
                 </div>
 
@@ -403,9 +597,9 @@ export const ResourceManager = () => {
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="p-6 bg-primary/5 rounded-3xl border border-primary/10 space-y-3"
+                    className="p-6 bg-primary/5 rounded-3xl border border-primary/10 space-y-3 max-h-64 overflow-y-auto no-scrollbar"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 sticky top-0 bg-primary/5 backdrop-blur-sm py-1">
                        <CheckCircle2 className="w-4 h-4 text-primary" />
                        <span className="text-[10px] font-black uppercase text-primary tracking-widest">Rio's Analysis</span>
                     </div>
@@ -417,33 +611,6 @@ export const ResourceManager = () => {
           </div>
         )}
       </AnimatePresence>
-
-      {/* Bottom Status Bar */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-3rem)] max-w-5xl glass-dark rounded-3xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 z-40 border-white/10 shadow-2xl">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10 text-white">
-            <CheckCircle2 className="w-4 h-4 text-primary" />
-            <span className="text-xs font-bold">7 resources selected</span>
-          </div>
-          <button className="text-xs font-bold text-white/60 hover:text-white transition-colors">Clear</button>
-          <div className="h-4 w-[1px] bg-white/10 mx-2" />
-          <button className="p-2 text-white/60 hover:text-red-400 transition-colors">
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 group cursor-pointer">
-            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white/60 group-hover:bg-white/20">
-              <ChevronLeft className="w-4 h-4" />
-            </div>
-            <span className="text-xs font-bold text-white px-3">Page 1 of 3</span>
-            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white/60 group-hover:bg-white/20">
-              <ChevronRight className="w-4 h-4" />
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

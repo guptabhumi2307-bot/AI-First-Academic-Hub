@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Users, Clock, Zap, Play, Pause, RotateCcw, MessageSquare, Shield, Globe, Lock, Brain, Send } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import { formatISTTime } from "../lib/utils";
 
 interface UserProfile {
   id: string;
@@ -231,15 +232,15 @@ export const FocusRooms = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className={isChatOpen ? "lg:col-span-8" : "lg:col-span-8"}>
           <div className="space-y-8">
-            <div className="bg-gradient-to-br from-indigo-600 via-primary to-purple-700 min-h-[450px] rounded-[4rem] text-white flex flex-col items-center justify-center relative overflow-hidden shadow-2xl shadow-primary/30 group">
+              <div className={`bg-gradient-to-br from-indigo-600 via-primary to-purple-700 min-h-[450px] rounded-[4rem] text-white flex flex-col items-center justify-center relative overflow-hidden shadow-2xl transition-all duration-700 group ${currentRoom?.isActive ? 'shadow-primary/50 ring-8 ring-primary/10' : 'shadow-primary/30'}`}>
                {/* Background Effects */}
                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(255,255,255,0.1),transparent)]" />
-               <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/10 rounded-full blur-[100px] transition-all duration-1000 ${currentRoom?.isActive ? 'scale-150 opacity-100' : 'scale-75 opacity-20'}`} />
+               <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/10 rounded-full blur-[100px] transition-all duration-1000 ${currentRoom?.isActive ? 'scale-150 opacity-100 animate-pulse' : 'scale-75 opacity-20'}`} />
                
                <div className="relative z-10 text-center space-y-8">
                   <div className="flex flex-col items-center">
                     <span className="text-sm font-black uppercase tracking-[0.3em] opacity-60 mb-4">Study Session</span>
-                    <div className="text-[120px] font-black tracking-tighter tabular-nums leading-none select-none drop-shadow-2xl">
+                    <div className={`text-[120px] font-black tracking-tighter tabular-nums leading-none select-none drop-shadow-2xl transition-all duration-500 ${currentRoom?.isActive ? 'scale-105 text-white' : 'scale-100 text-white/90'}`}>
                       {formatTime(currentRoom?.timer || 1500)}
                     </div>
                   </div>
@@ -317,7 +318,7 @@ export const FocusRooms = () => {
                     <div key={msg.id} className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black text-primary uppercase tracking-widest">{msg.userName}</span>
-                        <span className="text-[8px] text-ink-muted">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-[8px] text-ink-muted">{formatISTTime(new Date(msg.timestamp))}</span>
                       </div>
                       <div className="bg-white/40 border border-white/60 p-3 rounded-2xl rounded-tl-none text-xs text-ink leading-relaxed font-medium">
                         {msg.text}
@@ -361,12 +362,18 @@ export const FocusRooms = () => {
                       <div key={i} className="flex items-center justify-between group">
                         <div className="flex items-center gap-4">
                           <div className="relative">
-                            <img src={`https://picsum.photos/seed/${user.id}/80/80`} className="w-12 h-12 rounded-2xl border-2 border-white/60 shadow-lg" referrerPolicy="no-referrer" />
-                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white shadow-sm" />
+                            <div className={`absolute -inset-1 rounded-[1.25rem] bg-gradient-to-tr from-primary to-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity blur-sm ${currentRoom?.isActive ? 'opacity-30' : ''}`} />
+                            <img src={`https://picsum.photos/seed/${user.id}/80/80`} className="w-14 h-14 rounded-2xl border-2 border-white/80 shadow-lg relative z-10 object-cover" referrerPolicy="no-referrer" />
+                            <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-4 border-white shadow-sm z-20" />
                           </div>
                           <div>
-                            <p className="font-bold text-ink text-sm group-hover:text-primary transition-colors">{user.name}</p>
-                            <p className="text-[10px] text-ink-muted uppercase font-black tracking-widest">Studying Path Physics</p>
+                            <p className="font-bold text-ink text-base group-hover:text-primary transition-colors leading-none mb-1">{user.name}</p>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                               <div className={`w-1.5 h-1.5 rounded-full ${currentRoom?.isActive ? 'bg-primary animate-pulse' : 'bg-neutral-300'}`} />
+                               <p className="text-[10px] text-ink-muted uppercase font-black tracking-widest truncate max-w-[120px]">
+                                 {currentRoom?.isActive ? 'Deep Focus' : 'Just Joined'}
+                               </p>
+                            </div>
                           </div>
                         </div>
                       </div>

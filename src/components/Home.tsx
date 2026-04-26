@@ -18,11 +18,16 @@ import {
   Plus,
   ArrowUpRight,
   Brain,
-  Loader2
+  Loader2,
+  Bell,
+  AlertCircle
 } from "lucide-react";
-import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, onSnapshot, orderBy, where, limit } from "firebase/firestore";
 import { db, isDemoMode } from "../lib/firebase";
+import { getGeminiModel } from "../lib/gemini";
 import { useFirebase } from "../contexts/FirebaseContext";
+import { useTheme } from "../contexts/ThemeContext";
+import { formatISTDate, formatISTTime } from "../lib/utils";
 import { calculateBurnoutRisk, BurnoutMetrics } from "../lib/metrics";
 import { BurnoutMeter } from "./BurnoutMeter";
 import { Card } from "./ui/Card";
@@ -48,38 +53,303 @@ const StatCard = ({ icon: Icon, label, value, trend, color }: any) => (
 );
 
 export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
-  const { user } = useFirebase();
+  const { user, profile } = useFirebase();
+  const { preset } = useTheme();
   const [tasks, setTasks] = useState<any[]>([]);
+  const [quizzes, setQuizzes] = useState<any[]>([]);
+  const [attempts, setAttempts] = useState<any[]>([]);
+  const [resources, setResources] = useState<any[]>([]);
   const [burnoutMetrics, setBurnoutMetrics] = useState<BurnoutMetrics | null>(null);
+  const [latestAttempt, setLatestAttempt] = useState<any>(null);
+  const [latestResource, setLatestResource] = useState<any>(null);
+  const [academicInsight, setAcademicInsight] = useState<string>("Rio is analyzing your performance...");
+  const [recommendation, setRecommendation] = useState<{ text: string, link: string }>({ text: "Review your latest module", link: "Notes" });
+  const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+
+  const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+
+  const facts: Record<string, string[]> = {
+    "Physics": [
+      "At the speed of light, time actually stops relative to the observer.",
+      "Neutron stars are so dense that a teaspoon of their material would weigh a billion tons.",
+      "The universe is expanding at a rate of about 73 kilometers per second per megaparsec.",
+      "Light takes 8 minutes and 20 seconds to travel from the Sun to Earth."
+    ],
+    "Quantum Mechanics": [
+      "Particles can exist in two places at once until they are observed (Superposition).",
+      "Quantum entanglement allows particles to communicate instantaneously across any distance.",
+      "Teleportation is theoretically possible for quantum information, not yet for humans.",
+      "The vacuum of space is actually filled with 'virtual particles' that pop in and out of existence."
+    ],
+    "Biology": [
+      "The human brain uses about 20% of the body's total energy despite only being 2% of the weight.",
+      "DNA is so thin that if you uncoiled all the DNA in your body, it would reach Pluto and back.",
+      "There are more bacterial cells in your body than there are human cells.",
+      "Octopuses have three hearts and blue blood."
+    ],
+    "Neural Biology": [
+      "Synaptic pruning happens more during sleep, literally cleaning your brain's connections.",
+      "Information travels along nerves at speeds up to 400 km/h (250 mph).",
+      "The brain cannot feel pain itself; it lacks pain-sensing nerves.",
+      "Your brain generates enough electricity to power a small light bulb."
+    ],
+    "Chemistry": [
+      "A diamond is an octahedron of carbon atoms, while graphite is layers of hexagons.",
+      "There is about 0.2mg of gold in the average human body.",
+      "Glass is actually a solid that behaves like a liquid (amorphous solid).",
+      "Hydrofluoric acid is so reactive it will dissolve glass but can be stored in plastic."
+    ],
+    "Organic Chemistry": [
+      "Carbon is the 'duct tape' of life because it can form four incredibly stable bonds.",
+      "A single drop of oil can spread to cover an entire acre of water surface.",
+      "Aspirin was originally derived from the bark of various species of willow trees.",
+      "Wait until you learn about Chirality—molecules that are mirror images can have totally different effects."
+    ],
+    "Math": [
+      "A 'googol' is the number 1 followed by 100 zeros.",
+      "If you shuffle a deck of cards, the resulting order has likely never existed before in history.",
+      "The Fibonacci sequence is found everywhere in nature, from pinecones to galaxies.",
+      "Prime numbers are the 'atoms' of mathematics; every number is made of them."
+    ],
+    "History": [
+      "The Great Wall of China is not actually visible from space with the naked eye.",
+      "Cleopatra lived closer to the moon landing than to the building of the Great Pyramids.",
+      "The shortest war in history (Anglo-Zanzibar) lasted just 38 minutes.",
+      "Ancient Romans used human urine as a mouthwash because the ammonia killed bacteria."
+    ],
+    "Economics": [
+      "The first paper money was used by the Chinese in the 7th century.",
+      "Inflation can be so high that people need wheelbarrows of cash to buy a loaf of bread.",
+      "The world's first central bank was established in Sweden in 1668.",
+      "Bitcoin's creator, Satoshi Nakamoto, is still anonymous and owns roughly 1.1M BTC."
+    ],
+    "Data Science": [
+      "90% of the world's data was generated in just the last two years.",
+      "By 2025, it's estimated that 463 exabytes of data will be created each day globaly.",
+      "A human brain has a storage capacity of roughly 2.5 petabytes.",
+      "The first hard drive in 1956 weighed over a ton and held only 5 megabytes."
+    ]
+  };
+
+  const getDailyFact = () => {
+    const today = new Date();
+    const daySeed = today.getFullYear() * 1000 + today.getMonth() * 100 + today.getDate();
+    
+    // Flatten possible facts from choices
+    const availableFacts: { subject: string, fact: string }[] = [];
+    studentSubjects.forEach(sub => {
+      if (facts[sub]) {
+        facts[sub].forEach(f => availableFacts.push({ subject: sub, fact: f }));
+      }
+    });
+
+    // Fallback if no subject matches
+    if (availableFacts.length === 0) {
+      Object.keys(facts).forEach(sub => {
+         facts[sub].forEach(f => availableFacts.push({ subject: sub, fact: f }));
+      });
+    }
+
+    const index = daySeed % availableFacts.length;
+    return availableFacts[index];
+  };
+
+  const dailyFact = getDailyFact();
+
+  const getThemeColors = () => {
+    const config: Record<string, any> = {
+      blue: {
+        from: "from-blue-100", via: "via-indigo-50", to: "to-blue-200", border: "border-blue-300",
+        btn: "from-blue-600 to-indigo-700", icon: "from-blue-500 to-indigo-600",
+        text: "from-blue-800 to-indigo-700", sub: "text-blue-800/80 bg-blue-200/60",
+        p: "text-blue-900/70", pulse: "bg-blue-600", iconBg: "bg-blue-200", shadow: "shadow-blue-500/10", hover: "hover:shadow-blue-500/20"
+      },
+      purple: {
+        from: "from-purple-100", via: "via-fuchsia-50", to: "to-purple-200", border: "border-purple-300",
+        btn: "from-purple-600 to-fuchsia-700", icon: "from-purple-500 to-fuchsia-600",
+        text: "from-purple-800 to-fuchsia-700", sub: "text-purple-800/80 bg-purple-200/60",
+        p: "text-purple-900/70", pulse: "bg-purple-600", iconBg: "bg-purple-200", shadow: "shadow-purple-500/10", hover: "hover:shadow-purple-500/20"
+      },
+      green: {
+        from: "from-emerald-100", via: "via-teal-50", to: "to-emerald-200", border: "border-emerald-300",
+        btn: "from-emerald-600 to-teal-700", icon: "from-emerald-500 to-teal-600",
+        text: "from-emerald-800 to-teal-700", sub: "text-emerald-800/80 bg-emerald-200/60",
+        p: "text-emerald-900/70", pulse: "bg-emerald-600", iconBg: "bg-emerald-200", shadow: "shadow-emerald-500/10", hover: "hover:shadow-emerald-500/20"
+      },
+      teal: {
+        from: "from-teal-100", via: "via-cyan-50", to: "to-teal-200", border: "border-teal-300",
+        btn: "from-teal-600 to-cyan-700", icon: "from-teal-500 to-cyan-600",
+        text: "from-teal-800 to-cyan-700", sub: "text-teal-800/80 bg-teal-200/60",
+        p: "text-teal-900/70", pulse: "bg-teal-600", iconBg: "bg-teal-200", shadow: "shadow-teal-500/10", hover: "hover:shadow-teal-500/20"
+      },
+      indigo: {
+        from: "from-indigo-100", via: "via-blue-50", to: "to-indigo-200", border: "border-indigo-300",
+        btn: "from-indigo-600 to-blue-700", icon: "from-indigo-500 to-blue-600",
+        text: "from-indigo-800 to-blue-700", sub: "text-indigo-800/80 bg-indigo-200/60",
+        p: "text-indigo-900/70", pulse: "bg-indigo-600", iconBg: "bg-indigo-200", shadow: "shadow-indigo-500/10", hover: "hover:shadow-indigo-500/20"
+      },
+      rose: {
+        from: "from-rose-100", via: "via-pink-50", to: "to-rose-200", border: "border-rose-300",
+        btn: "from-rose-600 to-pink-700", icon: "from-rose-500 to-pink-600",
+        text: "from-rose-800 to-pink-700", sub: "text-rose-800/80 bg-rose-200/60",
+        p: "text-rose-900/70", pulse: "bg-rose-600", iconBg: "bg-rose-200", shadow: "shadow-rose-500/10", hover: "hover:shadow-rose-500/20"
+      },
+      amber: {
+        from: "from-amber-100", via: "via-orange-50", to: "to-amber-200", border: "border-amber-300",
+        btn: "from-amber-600 to-orange-700", icon: "from-amber-500 to-orange-600",
+        text: "from-amber-800 to-orange-700", sub: "text-amber-800/80 bg-amber-200/60",
+        p: "text-amber-900/70", pulse: "bg-amber-600", iconBg: "bg-amber-200", shadow: "shadow-amber-500/10", hover: "hover:shadow-amber-500/20"
+      }
+    };
+    return config[preset] || config.blue;
+  };
+
+  const colors = getThemeColors();
 
   useEffect(() => {
     if (!user) return;
 
     if (isDemoMode) {
       const demoTasks = [
-        { priority: 'High' as const, completed: false },
-        { priority: 'Medium' as const, completed: false },
-        { priority: 'High' as const, completed: true },
-        { priority: 'Low' as const, completed: false }
+        { id: "t1", title: "Linear Algebra Homework", priority: 'High' as const, completed: false, createdAt: new Date() },
+        { id: "t2", title: "Macroeconomics Reading", priority: 'Medium' as const, completed: false, createdAt: new Date() },
+        { id: "t3", title: "Chemistry Lab Report", priority: 'High' as const, completed: true, createdAt: new Date() },
+        { id: "t4", title: "History Essay Draft", priority: 'Low' as const, completed: false, createdAt: new Date() }
       ];
       setTasks(demoTasks);
-      setBurnoutMetrics(calculateBurnoutRisk(demoTasks));
+      setQuizzes([
+        { id: "q1", title: "Quantum Mechanics Fundamentals", questions: [1, 2, 3] },
+        { id: "q2", title: "Cell Structure & Function", questions: [1, 2, 3, 4] }
+      ]);
+      setAttempts([
+        { quizId: "q1", studentId: user.uid, percentage: 96 }
+      ]);
+      setLatestAttempt({ quizId: "q1", quizTitle: "Quantum Mechanics Fundamentals", percentage: 96 });
+      setBurnoutMetrics(calculateBurnoutRisk(demoTasks.map(t => ({ priority: t.priority, completed: t.completed }))));
       return;
     }
 
-    const q = query(
+    const qTasks = query(
       collection(db!, "users", user.uid, "tasks"),
       orderBy("createdAt", "desc")
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tasksData = snapshot.docs.map(doc => doc.data() as any);
+    const unsubscribeTasks = onSnapshot(qTasks, (snapshot) => {
+      const tasksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       setTasks(tasksData);
-      setBurnoutMetrics(calculateBurnoutRisk(tasksData));
+      setBurnoutMetrics(calculateBurnoutRisk(tasksData.map((t: any) => ({
+        priority: t.priority || 'Medium',
+        completed: t.completed || false
+      }))));
     });
 
-    return () => unsubscribe();
+    const qQuizzes = query(collection(db!, "quizzes"), orderBy("publishedAt", "desc"));
+    const unsubscribeQuizzes = onSnapshot(qQuizzes, (snapshot) => {
+      setQuizzes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const qAttempts = query(
+      collection(db!, "quiz_attempts"),
+      where("studentId", "==", user.uid),
+      orderBy("completedAt", "desc")
+    );
+
+    const unsubscribeAttempts = onSnapshot(qAttempts, (snapshot) => {
+      const attemptsData = snapshot.docs.map(doc => doc.data());
+      setAttempts(attemptsData);
+      if (!snapshot.empty) {
+        setLatestAttempt(snapshot.docs[0].data());
+      }
+    });
+
+    return () => {
+      unsubscribeTasks();
+      unsubscribeQuizzes();
+      unsubscribeAttempts();
+    };
   }, [user]);
+
+  useEffect(() => {
+    if (!user || isDemoMode) return;
+
+    const qResources = query(
+      collection(db!, "users", user.uid, "resources"),
+      orderBy("createdAt", "desc"),
+      limit(1)
+    );
+
+    const unsubscribeResources = onSnapshot(qResources, (snapshot) => {
+      if (!snapshot.empty) {
+        setLatestResource({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+      }
+    });
+
+    return () => unsubscribeResources();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || isDemoMode) {
+      if (isDemoMode) {
+        setAcademicInsight("Based on your recent scores in Thermodynamics, focus on Entropy concepts today. You're consistently missing details in heat engine cycles.");
+        setRecommendation({ text: "Practice Heat Engine Quizzes", link: "Quizzes" });
+      }
+      return;
+    }
+
+    const generateInsight = async () => {
+      if (isGeneratingInsight) return;
+      
+      setIsGeneratingInsight(true);
+      try {
+        const model = getGeminiModel();
+        const performanceSummary = {
+          quizzes: attempts.slice(0, 5).map(a => ({ title: a.quizTitle, score: a.percentage })),
+          tasks: tasks.slice(0, 5).map(t => ({ title: t.title, completed: t.completed, priority: t.priority })),
+          subjects: studentSubjects
+        };
+
+        const prompt = `You are Rio, an AI academic advisor. Use this student performance data:
+        Quizzes: ${JSON.stringify(performanceSummary.quizzes)}
+        Tasks: ${JSON.stringify(performanceSummary.tasks)}
+        Major Subjects: ${performanceSummary.subjects.join(", ")}
+
+        Provide:
+        1. ONE short, impactful, and SPECIFIC academic insight (max 2 sentences).
+        2. A SPECIFIC "next-step" recommendation (one sentence) and which app module it relates to (one of: "Planner", "Quizzes", "Resources", "Notes", "AI Chat", "Syllabus").
+
+        Respond ONLY in JSON format:
+        {
+          "insight": "the insight text",
+          "recommendation": "the next-step text",
+          "link": "target module name"
+        }`;
+
+        const result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: "application/json" }
+        });
+
+        const data = JSON.parse(result.text || "{}");
+        if (data.insight) {
+          setAcademicInsight(data.insight);
+          setRecommendation({ text: data.recommendation, link: data.link });
+        }
+      } catch (error) {
+        console.error("Failed to generate insight:", error);
+      } finally {
+        setIsGeneratingInsight(false);
+      }
+    };
+
+    const timeout = setTimeout(generateInsight, 3000);
+    return () => clearTimeout(timeout);
+  }, [attempts.length, tasks.length, user]);
+
+  const incompleteTasks = tasks.filter(t => !t.completed);
+  const attemptedQuizIds = new Set(attempts.map(a => a.quizId));
+  const unattemptedQuizzes = quizzes.filter(q => !attemptedQuizIds.has(q.id));
+
+  const totalReminders = incompleteTasks.length + unattemptedQuizzes.length;
 
   return (
     <div className="space-y-10 pb-20">
@@ -113,7 +383,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
           <div className="flex items-center gap-3 mb-2">
              <span className="px-3 py-1 bg-primary/5 text-primary rounded-full text-[10px] font-black uppercase tracking-widest border border-primary/5">Welcome Back</span>
              <span className="text-[10px] font-bold text-ink-muted uppercase tracking-widest italic flex items-center gap-1 group cursor-pointer hover:text-primary transition-colors">
-               Saturday, April 18 <ArrowUpRight className="w-3 h-3" />
+               {formatISTDate()} <ArrowUpRight className="w-3 h-3" />
              </span>
           </div>
           <h2 className="text-4xl font-black text-ink tracking-tight">How's it going, {user?.displayName?.split(' ')[0] || 'Scholar'}?</h2>
@@ -141,6 +411,100 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
         <StatCard icon={Zap} label="Notes Gen" value="42" trend="+18%" color="bg-orange-500" />
       </div>
 
+      {/* Reminders Section */}
+      <AnimatePresence>
+        {totalReminders > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+          >
+            <Card className="lg:col-span-12 border-none bg-rose-50/50 relative overflow-hidden">
+               <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl" />
+               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                  <div className="flex items-center gap-4">
+                     <div className="w-14 h-14 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 shadow-sm border border-rose-200">
+                        <Bell className="w-7 h-7" />
+                     </div>
+                     <div>
+                        <h3 className="text-xl font-black text-rose-900 tracking-tight">Academic Watchlist</h3>
+                        <p className="text-xs font-bold text-rose-700/60 uppercase tracking-widest">{totalReminders} Pending Actions Required</p>
+                     </div>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-3">
+                     {unattemptedQuizzes.length > 0 && (
+                        <div className="px-4 py-2 bg-white rounded-xl border border-rose-100 flex items-center gap-2 shadow-sm">
+                           <Zap className="w-4 h-4 text-amber-500" />
+                           <span className="text-[10px] font-black text-ink uppercase tracking-tighter">
+                              {unattemptedQuizzes.length} Quizzes Unattempted
+                           </span>
+                           <button onClick={() => onNavigate("Quizzes")} className="ml-2 text-[10px] font-black text-primary hover:underline">Solve Now</button>
+                        </div>
+                     )}
+                     {incompleteTasks.length > 0 && (
+                        <div className="px-4 py-2 bg-white rounded-xl border border-rose-100 flex items-center gap-2 shadow-sm">
+                           <AlertCircle className="w-4 h-4 text-rose-500" />
+                           <span className="text-[10px] font-black text-ink uppercase tracking-tighter">
+                              {incompleteTasks.length} Incomplete Tasks
+                           </span>
+                           <button onClick={() => onNavigate("Planner")} className="ml-2 text-[10px] font-black text-primary hover:underline">Review</button>
+                        </div>
+                     )}
+                  </div>
+               </div>
+
+               <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {unattemptedQuizzes.slice(0, 3).map((quiz) => (
+                    <div 
+                      key={quiz.id} 
+                      className="p-4 bg-white/60 rounded-2xl border border-rose-100/50 hover:bg-white transition-all cursor-pointer group"
+                      onClick={() => onNavigate("Quizzes")}
+                    >
+                       <div className="flex items-start justify-between">
+                          <div className="min-w-0 flex-1">
+                             <p className="text-[8px] font-black uppercase text-rose-600 tracking-widest mb-1 italic">New Assessment</p>
+                             <h4 className="text-xs font-bold text-ink truncate group-hover:text-primary transition-colors">{quiz.title}</h4>
+                             <p className="text-[10px] text-ink-muted mt-1 uppercase font-black">{quiz.subject || "Subject"}</p>
+                          </div>
+                          <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
+                             <ChevronRight className="w-4 h-4" />
+                          </div>
+                       </div>
+                    </div>
+                  ))}
+                  {incompleteTasks.slice(0, 3).map((task) => (
+                    <div 
+                      key={task.id} 
+                      className="p-4 bg-white/60 rounded-2xl border border-rose-100/50 hover:bg-white transition-all cursor-pointer group"
+                      onClick={() => onNavigate("Planner")}
+                    >
+                       <div className="flex items-start justify-between">
+                          <div className="min-w-0 flex-1">
+                             <p className="text-[8px] font-black uppercase text-rose-600 tracking-widest mb-1 italic">Pending Task</p>
+                             <h4 className="text-xs font-bold text-ink truncate group-hover:text-primary transition-colors">{task.title}</h4>
+                             <div className="flex items-center gap-2 mt-1">
+                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full ${
+                                  task.priority === 'High' ? 'bg-red-500 text-white' : 
+                                  task.priority === 'Medium' ? 'bg-amber-500 text-white' : 'bg-green-500 text-white'
+                                }`}>
+                                  {task.priority}
+                                </span>
+                             </div>
+                          </div>
+                          <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
+                             <ChevronRight className="w-4 h-4" />
+                          </div>
+                       </div>
+                    </div>
+                  ))}
+               </div>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: Recent Activity & Planner Summary */}
         <div className="lg:col-span-2 space-y-8">
@@ -158,8 +522,8 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
 
              <div className="space-y-4 relative z-10">
                 {[
-                  { time: "11:00 AM", task: "Linear Algebra Homework", sub: "Math", status: "Focus Mode" },
-                  { time: "02:00 PM", task: "Macroeconomics Reading", sub: "Economics", status: "Upcoming" }
+                  { time: formatISTTime(new Date(new Date().setHours(11, 0))), task: "Linear Algebra Homework", sub: "Math", status: "Focus Mode" },
+                  { time: formatISTTime(new Date(new Date().setHours(14, 0))), task: "Macroeconomics Reading", sub: "Economics", status: "Upcoming" }
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-6 p-4 rounded-2xl bg-white/60 hover:bg-white/80 border border-white/40 transition-all cursor-pointer group">
                     <div className="text-center w-20">
@@ -189,8 +553,8 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
                     <span className="text-xs font-black text-primary">High Score</span>
                  </div>
                  <div className="bg-white/40 p-6 rounded-2xl border border-white/60 mb-6 text-center">
-                    <p className="text-[10px] text-ink-muted uppercase font-black mb-1">Quantum Mechanics</p>
-                    <h4 className="text-4xl font-black text-primary italic">96%</h4>
+                    <p className="text-[10px] text-ink-muted uppercase font-black mb-1">{latestAttempt ? latestAttempt.quizTitle : "Quantum Mechanics"}</p>
+                    <h4 className="text-4xl font-black text-primary italic">{latestAttempt ? `${latestAttempt.percentage}%` : "96%"}</h4>
                  </div>
                  <button onClick={() => onNavigate("Quizzes")} className="w-full py-3 glass text-xs font-bold text-ink-muted hover:text-primary transition-colors flex items-center justify-center gap-2">
                     Retake for Mastery <ArrowUpRight className="w-3 h-3" />
@@ -209,8 +573,10 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
                        <BookOpen className="w-6 h-6" />
                     </div>
                     <div className="min-w-0">
-                       <h4 className="text-sm font-bold text-ink truncate">Neurobiology_Lecture_04.pdf</h4>
-                       <p className="text-[10px] text-ink-muted font-bold tracking-tight">Added 2 hours ago</p>
+                       <h4 className="text-sm font-bold text-ink truncate">{latestResource?.title || "Add your first resource"}</h4>
+                       <p className="text-[10px] text-ink-muted font-bold tracking-tight">
+                         {latestResource?.createdAt?.toDate ? `Added ${formatISTDate(latestResource.createdAt.toDate())}` : "Get started by uploading a PDF"}
+                       </p>
                     </div>
                  </div>
                  <button onClick={() => onNavigate("Resources")} className="w-full py-3 glass text-xs font-bold text-ink-muted hover:text-primary transition-colors flex items-center justify-center gap-2">
@@ -218,6 +584,39 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
                  </button>
               </Card>
            </div>
+
+           {/* Daily Academic Discovery Card */}
+           <Card className={`bg-linear-to-br ${colors.from} ${colors.via} ${colors.to} ${colors.border} overflow-hidden relative group shadow-lg ${colors.shadow} ${colors.hover} transition-all`}>
+              <div className="absolute top-0 right-0 -mr-8 -mt-8 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-colors" />
+              <div className="absolute bottom-0 left-0 -ml-8 -mb-8 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:bg-white/15 transition-colors" />
+              
+              <div className="flex items-center gap-3 mb-5">
+                 <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${colors.icon} flex items-center justify-center text-white shadow-md transform group-hover:rotate-12 transition-transform`}>
+                    <Sparkles className="w-5 h-5" />
+                 </div>
+                 <div>
+                    <h3 className={`text-base font-black text-ink uppercase tracking-tight italic bg-clip-text text-transparent bg-gradient-to-r ${colors.text}`}>Did You Know?</h3>
+                    <p className={`text-[10px] font-black uppercase ${colors.p} tracking-widest leading-none mt-0.5`}>Daily Academic Discovery</p>
+                 </div>
+              </div>
+
+              <div className="space-y-3 relative z-10">
+                 <p className={`text-[10px] font-black uppercase ${colors.sub} tracking-[0.2em] mb-1 italic w-fit px-2 py-0.5 rounded-full`}>Subject: {dailyFact.subject}</p>
+                 <p className="text-base font-extrabold text-ink leading-relaxed drop-shadow-sm">
+                   {dailyFact.fact}
+                 </p>
+              </div>
+
+              <div className={`mt-8 flex items-center justify-between border-t ${colors.border}/50 pt-5`}>
+                 <div className="flex items-center gap-1.5">
+                    <div className={`w-2 h-2 rounded-full ${colors.pulse} animate-pulse`} />
+                    <p className={`text-[9px] font-black ${colors.p} uppercase tracking-tighter`}>Powered by Rio IA</p>
+                 </div>
+                 <button className={`text-[10px] font-black text-white bg-gradient-to-r ${colors.btn} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all uppercase tracking-widest`}>
+                    Learn More
+                 </button>
+              </div>
+           </Card>
         </div>
 
         {/* Right Column: AI Insights & Quick Chat */}
@@ -230,16 +629,25 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
                     <Sparkles className="w-10 h-10 text-white" />
                  </div>
                  <h3 className="text-2xl font-black mb-4 leading-tight italic">Rio's Academic Insights</h3>
-                 <p className="text-white/80 text-sm leading-relaxed mb-10 font-medium">
-                   "Based on your recent scores in Thermodynamics, focus on Entropy concepts today. You're consistently missing details in heat engine cycles."
-                 </p>
+                 <div className="min-h-[80px] mb-8">
+                    {isGeneratingInsight ? (
+                      <div className="space-y-2 animate-pulse">
+                        <div className="h-4 bg-white/20 rounded w-full" />
+                        <div className="h-4 bg-white/20 rounded w-3/4" />
+                      </div>
+                    ) : (
+                      <p className="text-white/80 text-sm leading-relaxed font-medium">
+                        "{academicInsight}"
+                      </p>
+                    )}
+                 </div>
                  
                  <div className="space-y-4">
                     <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20">
                        <p className="text-[10px] font-black uppercase text-white/60 tracking-widest mb-2">Smart Recommendation</p>
-                       <p className="text-xs font-bold">Generate Smart Notes for Chapter 8?</p>
-                       <button onClick={() => onNavigate("Notes")} className="mt-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:gap-3 transition-all">
-                          Get Started <ChevronRight className="w-3 h-3" />
+                       <p className="text-xs font-bold">{recommendation.text}</p>
+                       <button onClick={() => onNavigate(recommendation.link as any)} className="mt-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:gap-3 transition-all">
+                          Go to {recommendation.link} <ChevronRight className="w-3 h-3" />
                        </button>
                     </div>
                  </div>
@@ -248,29 +656,6 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
               <button onClick={() => onNavigate("AI Chat")} className="w-full py-4 mt-12 bg-white text-primary rounded-2xl font-bold flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-indigo-900/40 relative z-10">
                  <MessageSquare className="w-5 h-5" /> Chat with Rio
               </button>
-           </Card>
-
-           {/* Performance Heatmap Mockup */}
-           <Card className="space-y-4">
-              <h3 className="font-bold text-ink flex items-center gap-2 text-sm">
-                 <TrendingUp className="w-4 h-4 text-primary" /> Learning Intensity
-              </h3>
-              <div className="grid grid-cols-7 gap-1.5 pt-2">
-                 {Array.from({ length: 28 }).map((_, i) => (
-                   <div 
-                      key={i} 
-                      className={`h-2.5 rounded-sm ${
-                        i % 5 === 0 ? "bg-primary" : 
-                        i % 3 === 0 ? "bg-primary/60" : 
-                        i % 7 === 0 ? "bg-primary/20" : "bg-white/40"
-                      }`} 
-                   />
-                 ))}
-              </div>
-              <div className="flex justify-between text-[8px] font-black text-ink-muted uppercase tracking-widest px-1">
-                 <span>Past 4 Weeks</span>
-                 <span>Peak Growth</span>
-              </div>
            </Card>
         </div>
       </div>

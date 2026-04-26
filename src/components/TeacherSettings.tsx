@@ -34,13 +34,25 @@ export const TeacherSettings = () => {
   const { user, profile, updateProfile } = useFirebase();
   const { mode, setMode, preset, setPreset } = useTheme();
   
-  const [name, setName] = useState(profile?.displayName || user?.displayName || "");
-  const [email, setEmail] = useState(profile?.email || user?.email || "");
-  const [institution, setInstitution] = useState(profile?.institution || "Metropolitan University");
-  const [department, setDepartment] = useState(profile?.department || "Neural Sciences");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [institution, setInstitution] = useState("Metropolitan University");
+  const [department, setDepartment] = useState("Neural Sciences");
   const [isSaving, setIsSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState("••••••••••••");
+
+  React.useEffect(() => {
+    if (profile) {
+      setName(profile.displayName || user?.displayName || "");
+      setEmail(profile.email || user?.email || "");
+      if (profile.institution) setInstitution(profile.institution);
+      if (profile.department) setDepartment(profile.department);
+    } else if (user) {
+      setName(user.displayName || "");
+      setEmail(user.email || "");
+    }
+  }, [profile, user]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -94,67 +106,73 @@ export const TeacherSettings = () => {
             <button className="text-ink-muted hover:text-ink"><MoreVertical className="w-5 h-5" /></button>
           </div>
 
-          <div className="flex flex-col xl:flex-row gap-12 items-start relative z-10">
-            <div className="relative group/photo">
-              <div className="w-40 h-40 rounded-[2.5rem] overflow-hidden glass shadow-2xl border-4 border-white/60">
-                <img src={user?.photoURL || "https://picsum.photos/seed/prof/400/400"} className="w-full h-full object-cover" />
+          <div className="flex flex-col xl:flex-row gap-12 relative z-10">
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative group/photo">
+                <div className="w-44 h-44 rounded-[3rem] overflow-hidden glass shadow-2xl border-4 border-white">
+                  <img src={user?.photoURL || "https://picsum.photos/seed/prof/400/400"} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                </div>
+                <button className="absolute -bottom-2 -right-2 w-12 h-12 bg-indigo-600 text-white shadow-xl rounded-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all border-4 border-white">
+                  <Upload className="w-5 h-5" />
+                </button>
               </div>
-              <button className="absolute -bottom-2 -right-2 w-12 h-12 bg-indigo-600 text-white shadow-xl rounded-2xl flex items-center justify-center hover:scale-110 transition-all border-4 border-white">
-                <Upload className="w-5 h-5" />
-              </button>
+              <p className="text-[10px] font-black text-ink-muted uppercase tracking-tighter">Educator ID: {user?.uid.slice(0, 8)}</p>
             </div>
 
-            <div className="flex-1 space-y-6 w-full">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
+            <div className="flex-1 space-y-8 w-full max-w-2xl">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-3">
                   <p className="text-[10px] uppercase tracking-widest font-black text-ink-muted ml-1">Legal Name</p>
                   <input 
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full glass px-6 py-4 rounded-2xl text-ink font-bold shadow-sm border-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full glass px-6 py-4 rounded-2xl text-ink font-bold shadow-sm border-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-600/20 bg-transparent"
+                    placeholder="Full Name"
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <p className="text-[10px] uppercase tracking-widest font-black text-ink-muted ml-1">Academic Institution</p>
                   <div className="relative">
-                    <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
+                    <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 group-focus-within:scale-110 transition-transform" />
                     <input 
                       type="text"
                       value={institution}
                       onChange={(e) => setInstitution(e.target.value)}
-                      className="w-full glass pl-12 pr-6 py-4 rounded-2xl text-ink font-bold shadow-sm border-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      className="w-full glass pl-12 pr-6 py-4 rounded-2xl text-ink font-bold shadow-sm border-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-600/20 bg-transparent"
+                      placeholder="Institution Name"
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <p className="text-[10px] uppercase tracking-widest font-black text-ink-muted ml-1">Department</p>
                   <input 
                     type="text"
                     value={department}
                     onChange={(e) => setDepartment(e.target.value)}
-                    className="w-full glass px-6 py-4 rounded-2xl text-ink font-bold shadow-sm border-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full glass px-6 py-4 rounded-2xl text-ink font-bold shadow-sm border-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-600/20 bg-transparent"
+                    placeholder="e.g. Computer Science"
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <p className="text-[10px] uppercase tracking-widest font-black text-ink-muted ml-1">Verified Email</p>
                   <div className="relative">
                     <input 
                       type="email"
                       value={email}
                       disabled
-                      className="w-full glass px-6 py-4 rounded-2xl text-ink-muted font-bold shadow-sm border-white/40 opacity-70 cursor-not-allowed"
+                      className="w-full glass px-6 py-4 rounded-2xl text-ink-muted font-bold shadow-sm border-white/40 opacity-70 cursor-not-allowed bg-neutral-50/50"
                     />
                     <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
                   </div>
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4">
+              <div className="flex justify-end pt-4 border-t border-white/10">
                 <button 
                   onClick={handleSave}
                   disabled={isSaving}
-                  className="px-10 py-4 bg-indigo-600 text-white rounded-[1.5rem] font-bold shadow-xl shadow-indigo-600/30 hover:scale-105 transition-all disabled:opacity-50"
+                  className="px-10 py-4 bg-indigo-600 text-white rounded-[1.5rem] font-bold shadow-xl shadow-indigo-600/30 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
                 >
                   {isSaving ? "Synchronizing..." : "Update Portal Profile"}
                 </button>

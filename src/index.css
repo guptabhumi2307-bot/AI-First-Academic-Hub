@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -103,6 +103,38 @@
   }
   .dark-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Basic Markdown Styling */
+  .prose {
+    @apply text-inherit;
+  }
+  .prose h1, .prose h2, .prose h3 {
+    @apply font-black tracking-tight mt-4 mb-2 first:mt-0;
+  }
+  .prose h1 { @apply text-lg; }
+  .prose h2 { @apply text-base; }
+  .prose h3 { @apply text-sm; }
+  .prose p {
+    @apply mb-3 last:mb-0;
+  }
+  .prose ul, .prose ol {
+    @apply ml-4 mb-3;
+  }
+  .prose ul {
+    @apply list-disc;
+  }
+  .prose ol {
+    @apply list-decimal;
+  }
+  .prose li {
+    @apply mb-1;
+  }
+  .prose strong {
+    @apply font-black text-primary;
+  }
+  .prose blockquote {
+    @apply border-l-4 border-primary/20 pl-4 py-1 italic bg-primary/5 rounded-r-lg mb-3;
   }
 }
 

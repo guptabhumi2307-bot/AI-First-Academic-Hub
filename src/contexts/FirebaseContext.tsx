@@ -45,18 +45,55 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
+        // Validate Connection to Firestore
+        const testConnection = async () => {
+          try {
+            await getDocFromServer(doc(db!, 'test', 'connection'));
+          } catch (error) {
+            if (error instanceof Error && error.message.includes('the client is offline')) {
+              console.error("Please check your Firebase configuration or internet connection.");
+            }
+          }
+        };
+        testConnection();
+
+        // Ensure profile exists (if they logged in previously but doc is missing or needs sync)
+        const syncProfile = async () => {
+          try {
+            const { doc, getDoc, setDoc, serverTimestamp } = await import("firebase/firestore");
+            const userRef = doc(db!, "users", currentUser.uid);
+            const snap = await getDoc(userRef);
+            if (!snap.exists()) {
+              await setDoc(userRef, {
+                userId: currentUser.uid,
+                email: currentUser.email,
+                displayName: currentUser.displayName,
+                photoURL: currentUser.photoURL,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+                stats: { studyTime: 0, goalsHit: 0, totalNotes: 0, avgAccuracy: 0 }
+              });
+            }
+          } catch (e) {
+            console.warn("Soft profile sync failed:", e);
+          }
+        };
+        syncProfile();
+
         // Set a safety timeout for profile loading
         const timeoutId = setTimeout(() => {
           setLoading(false);
         }, 5000); // 5 second safety net
 
         // Listen to profile changes
+        console.log("ProfileSync: Starting listener for", currentUser.uid);
         const unsubscribeProfile = onSnapshot(doc(db!, "users", currentUser.uid), (doc) => {
+          console.log("ProfileSync: Received data, exists:", doc.exists());
           clearTimeout(timeoutId);
           setProfile(doc.data() || null);
           setLoading(false);
         }, (error) => {
-          console.error("Profile sync error:", error);
+          console.error("ProfileSync: Permission Error for UID:", currentUser.uid, "Error:", error);
           clearTimeout(timeoutId);
           setLoading(false);
         });

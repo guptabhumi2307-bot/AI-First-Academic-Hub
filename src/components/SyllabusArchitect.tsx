@@ -1,12 +1,11 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FileText, Sparkles, Calendar, Target, Clock, Upload, ChevronRight, CheckCircle2 } from "lucide-react";
-import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { doc, collection, writeBatch, serverTimestamp } from "firebase/firestore";
 import { db, isDemoMode, handleFirestoreError } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import { getGeminiModel } from "../lib/gemini";
+import { formatISTShortDate } from "../lib/utils";
 
 interface RoadmapItem {
   week: string;
@@ -93,41 +92,14 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
         });
       }
 
-      const response = await ai.models.generateContent({
+      const model = getGeminiModel({
         model: "gemini-3-flash-preview",
-        contents: { parts },
+      });
+      
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts }],
         config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              summary: {
-                type: Type.OBJECT,
-                properties: {
-                  primaryFocus: { type: Type.STRING },
-                  totalTopics: { type: Type.NUMBER },
-                  criticalMilestones: { type: Type.NUMBER },
-                  estimatedWorkload: { type: Type.STRING }
-                },
-                required: ["primaryFocus", "totalTopics", "criticalMilestones"]
-              },
-              roadmap: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    week: { type: Type.STRING },
-                    topic: { type: Type.STRING },
-                    deadline: { type: Type.STRING },
-                    priority: { type: Type.STRING, enum: ["High", "Medium", "Low"] }
-                  },
-                  required: ["week", "topic", "priority"]
-                }
-              }
-            },
-            required: ["summary", "roadmap"]
-          }
         }
       });
 
@@ -405,7 +377,7 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
                     </div>
                   </div>
 
-                  <div className="space-y-4 max-h-[600px] overflow-y-auto no-scrollbar pr-2">
+                  <div className="space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
                     {roadmap.map((item, i) => (
                       <motion.div 
                         key={i}
@@ -437,7 +409,7 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
                                 </div>
                               )}
                               <div className="flex items-center gap-2 text-[10px] font-bold text-ink-muted">
-                                <Calendar className="w-3.5 h-3.5" /> {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                <Calendar className="w-3.5 h-3.5" /> {formatISTShortDate()}
                               </div>
                             </div>
                           </div>

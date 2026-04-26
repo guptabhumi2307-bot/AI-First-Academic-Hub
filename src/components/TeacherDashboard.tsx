@@ -28,11 +28,13 @@ import {
   ArrowRight
 } from "lucide-react";
 
+import { formatISTDate, formatISTTime } from "../lib/utils";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { SyllabusArchitect } from "./SyllabusArchitect";
 import { TeacherSettings } from "./TeacherSettings";
 import { Classrooms } from "./Classrooms";
 import { QuizBuilder } from "./QuizBuilder";
+import { TeacherAnalytics } from "./TeacherAnalytics";
 
 const SidebarItem = ({ icon: Icon, label, active = false, onClick, collapsed = false, variant = "default" }: any) => (
   <button 
@@ -57,7 +59,7 @@ const SidebarItem = ({ icon: Icon, label, active = false, onClick, collapsed = f
   </button>
 );
 
-const TeacherHome = () => (
+const TeacherHome = ({ onNavigate }: { onNavigate: (tab: string) => void }) => (
   <div className="space-y-10">
     <div className="flex items-end justify-between">
       <div>
@@ -75,16 +77,17 @@ const TeacherHome = () => (
     {/* Analytics Overview */}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
       {[
-        { label: "Active Students", value: "124", change: "+12%", icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
-        { label: "Content Mastery", value: "78%", change: "+5%", icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50" },
-        { label: "AI Interactions", value: "2.4k", change: "+18%", icon: Zap, color: "text-amber-600", bg: "bg-amber-50" }
+        { id: "Analytics", label: "Class Performance", value: "88%", change: "+12%", icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50" },
+        { id: "Classrooms", label: "Active Students", value: "124", change: "+5%", icon: Users, color: "text-emerald-600", bg: "bg-emerald-50" },
+        { id: "Creator", label: "AI Interactions", value: "2.4k", change: "+18%", icon: Zap, color: "text-amber-600", bg: "bg-amber-50" }
       ].map((stat, i) => (
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.1 }}
           key={i} 
-          className="glass p-8 rounded-[2.5rem] border-white/60 shadow-lg group hover:scale-[1.02] transition-all"
+          onClick={() => onNavigate(stat.id)}
+          className="glass p-8 rounded-[2.5rem] border-white/60 shadow-lg group hover:scale-[1.02] transition-all cursor-pointer"
         >
           <div className="flex items-center justify-between mb-4">
             <div className={`w-12 h-12 rounded-2xl ${stat.bg} ${stat.color} flex items-center justify-center`}>
@@ -138,11 +141,11 @@ const TeacherHome = () => (
         </div>
         <div className="space-y-4">
           {[
-            { title: "Weekly Quiz: Neural Synapses", date: "Today, 4:00 PM", status: "Ready" },
+            { title: "Weekly Quiz: Neural Synapses", date: `Today, ${formatISTTime(new Date(new Date().setHours(16, 0)))}`, status: "Ready" },
             { title: "Syllabus Update: Week 12", date: "Tomorrow", status: "Draft" },
-            { title: "Study Pack: Reaction Mechanics", date: "Oct 24", status: "Scheduled" }
+            { title: "Study Pack: Reaction Mechanics", date: formatISTDate(new Date(new Date().setDate(new Date().getDate() + 1))), status: "Scheduled" }
           ].map((item, i) => (
-            <div key={i} className="flex items-center justify-between p-4 rounded-2xl border border-dashed border-neutral-200 hover:border-indigo-300 transition-all cursor-pointer group">
+            <div key={i} onClick={() => onNavigate("Quiz")} className="flex items-center justify-between p-4 rounded-2xl border border-dashed border-neutral-200 hover:border-indigo-300 transition-all cursor-pointer group">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-xl bg-neutral-50 flex items-center justify-center text-neutral-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-all">
                   <BarChart3 className="w-5 h-5" />
@@ -183,6 +186,7 @@ export const TeacherDashboard = () => {
     { id: "cls2", type: "Class", title: "Organic Chemistry II", detail: "CHM-201", tab: "Classrooms" },
     { id: "quiz1", type: "Quiz", title: "Neural Synapses", detail: "Active Queue", tab: "Quiz" },
     { id: "syll1", type: "Syllabus", title: "Week 12 Architect", detail: "Draft", tab: "Syllabus" },
+    { id: "analytics1", type: "Analytics", title: "Performance Data", detail: "Overall Growth", tab: "Analytics" },
     { id: "set1", type: "Settings", title: "Portal Security", detail: "General Settings", tab: "Settings" }
   ];
 
@@ -261,7 +265,8 @@ export const TeacherDashboard = () => {
                         <div className="flex items-center gap-4 text-left">
                           <div className="w-10 h-10 rounded-xl bg-white border border-neutral-100 flex items-center justify-center text-indigo-600 shadow-sm">
                             {item.type === "Class" ? <BookMarked className="w-5 h-5" /> : 
-                             item.type === "Quiz" ? <ListChecks className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                             item.type === "Quiz" ? <ListChecks className="w-5 h-5" /> : 
+                             item.type === "Analytics" ? <BarChart3 className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
                           </div>
                           <div>
                             <p className="font-bold text-ink group-hover:text-indigo-600">{item.title}</p>
@@ -345,7 +350,6 @@ export const TeacherDashboard = () => {
           <SidebarItem icon={Users} label="Classrooms" active={activeTab === "Classrooms"} onClick={() => setActiveTab("Classrooms")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={ListChecks} label="Quiz Builder" active={activeTab === "Quiz"} onClick={() => setActiveTab("Quiz")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={BarChart3} label="Analytics" active={activeTab === "Analytics"} onClick={() => setActiveTab("Analytics")} collapsed={!isSidebarOpen} />
-          <SidebarItem icon={Plus} label="Content Creator" active={activeTab === "Creator"} onClick={() => setActiveTab("Creator")} collapsed={!isSidebarOpen} />
           
           <div className="pt-4 mt-4 border-t border-slate-800 space-y-1.5">
             <SidebarItem icon={Settings} label="Portal Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} collapsed={!isSidebarOpen} />
@@ -456,7 +460,7 @@ export const TeacherDashboard = () => {
           </div>
         </header>
 
-        <div className="p-10 max-w-7xl mx-auto">
+        <div className="p-4 md:p-10 max-w-7xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -465,12 +469,13 @@ export const TeacherDashboard = () => {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
             >
-              {activeTab === "Dashboard" && <TeacherHome />}
+              {activeTab === "Dashboard" && <TeacherHome onNavigate={setActiveTab} />}
               {activeTab === "Classrooms" && <Classrooms />}
               {activeTab === "Quiz" && <QuizBuilder />}
+              {activeTab === "Analytics" && <TeacherAnalytics />}
               {activeTab === "Syllabus" && <SyllabusArchitect onNavigate={setActiveTab} />}
               {activeTab === "Settings" && <TeacherSettings />}
-              {activeTab !== "Dashboard" && activeTab !== "Classrooms" && activeTab !== "Syllabus" && activeTab !== "Settings" && (
+              {activeTab !== "Dashboard" && activeTab !== "Classrooms" && activeTab !== "Syllabus" && activeTab !== "Settings" && activeTab !== "Analytics" && activeTab !== "Quiz" && (
                 <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4">
                   <div className="w-20 h-20 bg-indigo-100 rounded-3xl flex items-center justify-center text-indigo-600">
                     <Sparkles className="w-10 h-10" />

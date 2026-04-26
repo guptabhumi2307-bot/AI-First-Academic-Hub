@@ -5,8 +5,8 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { GoogleGenAI, Type } from "@google/genai";
 import { isDemoMode } from "../lib/firebase";
+import { getGeminiModel } from "../lib/gemini";
 import { 
   Upload, 
   FileText, 
@@ -32,8 +32,6 @@ import {
   CircleStop,
   Clock
 } from "lucide-react";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
   <div className={`glass rounded-[2rem] p-8 border-white/60 shadow-xl ${className}`}>
@@ -80,9 +78,12 @@ export const SmartNotes = () => {
         Terms: ${generatedNotes.terms?.map((t: any) => `${t.term}: ${t.definition}`).join("; ") || ""}
       `;
 
-      const response = await ai.models.generateContent({
+      const model = getGeminiModel({
         model: "gemini-3-flash-preview",
-        contents: [{ text: `Analyze these study notes and generate 5 highly relevant conceptual flashcards that test the user's understanding of key principles and terminology.
+      });
+
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: `Analyze these study notes and generate 5 highly relevant conceptual flashcards that test the user's understanding of key principles and terminology.
         
         Notes Context:
         ${contextForFlashcards}
@@ -90,20 +91,9 @@ export const SmartNotes = () => {
         Requirements:
         1. Focus on higher-order thinking questions (Why/How) rather than just simple definitions.
         2. Ensure answers are concise but academically rigorous.
-        3. Respond strictly with a JSON array of objects having "question" and "answer" properties.` }],
+        3. Respond strictly with a JSON array of objects having "question" and "answer" properties.` }] }],
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                question: { type: Type.STRING },
-                answer: { type: Type.STRING }
-              },
-              required: ["question", "answer"]
-            }
-          }
         }
       });
       const text = response.text;
@@ -230,56 +220,17 @@ export const SmartNotes = () => {
         });
       }
 
-      const response = await ai.models.generateContent({
+      const model = getGeminiModel({
         model: "gemini-3-flash-preview",
-        contents: { parts },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              definition: { type: Type.STRING },
-              sections: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    heading: { type: Type.STRING },
-                    content: { type: Type.STRING }
-                  },
-                  required: ["heading", "content"]
-                }
-              },
-              keyPoints: { 
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              formula: { type: Type.STRING },
-              actionItems: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              deadlines: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              terms: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    term: { type: Type.STRING },
-                    definition: { type: Type.STRING }
-                  }
-                }
-              }
-            },
-            required: ["title", "definition", "keyPoints", "sections"]
-          }
-        }
       });
 
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts }],
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+      
       const text = response.text;
       if (!text) throw new Error("Empty AI response");
       const data = JSON.parse(text);

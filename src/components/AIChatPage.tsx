@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI } from "@google/genai";
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { getGeminiModel } from "../lib/gemini";
+import { formatISTDate, formatISTTime } from "../lib/utils";
 import { 
   Send, 
   Bot, 
@@ -41,7 +42,7 @@ import {
   setDoc
 } from "firebase/firestore";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import ReactMarkdown from "react-markdown";
 
 interface Message {
   role: "user" | "model";
@@ -67,9 +68,12 @@ export const AIChatPage = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [audioBase64, setAudioBase64] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; type: string; data: string } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load Sessions
   useEffect(() => {
@@ -106,6 +110,37 @@ export const AIChatPage = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const processFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      setAttachedFile({
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        data: base64
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
   const createNewSession = async () => {
     if (!user || isDemoMode) {
@@ -177,15 +212,26 @@ export const AIChatPage = () => {
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processFile(file);
+    // Reset input for same file selection
+    e.target.value = "";
+  };
+
   const playTTS = async (text: string) => {
     if (isSpeaking) return;
     setIsSpeaking(true);
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-tts-preview",
-        contents: [{ parts: [{ text: `Say clearly: ${text}` }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
+      const model = getGeminiModel({
+        model: "gemini-3.1-flash-tts-preview", 
+      });
+
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: `Say clearly: ${text}` }] }],
+        generationConfig: {
+          responseModalities: ["audio"],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: 'Kore' },
@@ -221,15 +267,22 @@ export const AIChatPage = () => {
   };
 
   const handleSend = async () => {
-    if ((!input.trim() && !audioBase64) || isLoading) return;
+    if ((!input.trim() && !audioBase64 && !attachedFile) || isLoading) return;
 
-    const userText = input || "Voice Input";
+    const userText = input || (attachedFile ? `Analyzing ${attachedFile.name}` : "Voice Input");
     const userMessage: Message = { role: "user", text: userText };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput("");
     setAudioBase64(null);
+    const fileToUpload = attachedFile;
+    setAttachedFile(null);
     setIsLoading(true);
+
+    const systemInstruction = {
+      role: "user",
+      parts: [{ text: "SYSTEM INSTRUCTION: You are Rio, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly and answer questions related to it." }]
+    };
 
     try {
       const contextMessages = messages.slice(-10).map(m => ({
@@ -238,13 +291,18 @@ export const AIChatPage = () => {
       }));
 
       const currentParts: any[] = [
-        { text: input || "Please transcribe and answer based on this audio content." },
-        ...(audioBase64 ? [{ inlineData: { mimeType: "audio/wav", data: audioBase64 } }] : [])
+        { text: input || (fileToUpload ? `Please analyze this file: ${fileToUpload.name}` : "Please transcribe and answer based on this audio content.") },
+        ...(audioBase64 ? [{ inlineData: { mimeType: "audio/wav", data: audioBase64 } }] : []),
+        ...(fileToUpload ? [{ inlineData: { mimeType: fileToUpload.type, data: fileToUpload.data } }] : [])
       ];
 
-      const response = await ai.models.generateContent({
+      const model = getGeminiModel({
         model: "gemini-3-flash-preview",
+      });
+
+      const response = await model.generateContent({
         contents: [
+          systemInstruction,
           ...contextMessages,
           { role: "user", parts: currentParts }
         ]
@@ -282,9 +340,33 @@ export const AIChatPage = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-160px)] flex gap-8">
+    <div 
+      className="h-[calc(100vh-160px)] flex gap-8"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col glass rounded-[2.5rem] overflow-hidden border-white/40 shadow-2xl relative">
+      <div className={`flex-1 flex flex-col glass rounded-[2.5rem] overflow-hidden border-white/40 shadow-2xl relative transition-all duration-300 ${isDragging ? "ring-4 ring-primary ring-inset scale-[0.99] bg-primary/5" : ""}`}>
+        {/* Drag Overlay */}
+        <AnimatePresence>
+          {isDragging && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-50 flex items-center justify-center bg-primary/20 backdrop-blur-md"
+            >
+              <div className="bg-white p-10 rounded-[3rem] shadow-3xl text-center border-4 border-dashed border-primary">
+                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Paperclip className="w-10 h-10 text-primary animate-bounce" />
+                </div>
+                <h3 className="text-2xl font-black text-ink mb-2">Drop to Analyze</h3>
+                <p className="text-ink-muted">Rio will read your document instantly</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {/* Chat Header */}
         <div className="px-8 py-5 border-b border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -341,7 +423,9 @@ export const AIChatPage = () => {
                     ? "bg-primary text-white rounded-tr-none" 
                     : "glass text-ink border-white/50 rounded-tl-none font-medium"
                 }`}>
-                  {m.text}
+                  <div className="prose prose-sm max-w-none">
+                    <ReactMarkdown>{m.text}</ReactMarkdown>
+                  </div>
                   {m.role === "model" && (
                     <button 
                       onClick={() => playTTS(m.text)}
@@ -372,7 +456,18 @@ export const AIChatPage = () => {
         <div className="p-8 bg-white/10 backdrop-blur-xl border-t border-white/20">
           <div className="relative group">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-              <button className="p-2 rounded-lg hover:bg-white/20 text-ink-muted transition-colors">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                className="hidden"
+                accept="image/*,.pdf,.docx,.txt"
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 rounded-lg hover:bg-white/20 text-ink-muted transition-colors"
+                title="Attach Document"
+              >
                 <Paperclip className="w-5 h-5" />
               </button>
             </div>
@@ -385,7 +480,7 @@ export const AIChatPage = () => {
                   handleSend();
                 }
               }}
-              placeholder="Describe what you want to learn today..."
+              placeholder={attachedFile ? `Adding ${attachedFile.name}...` : "Describe what you want to learn today..."}
               className="w-full glass rounded-[2rem] pl-16 pr-32 py-5 text-sm focus:outline-none focus:ring-4 focus:ring-primary/10 transition-all border-none min-h-[70px] max-h-[200px] resize-none"
               rows={1}
             />
@@ -398,22 +493,33 @@ export const AIChatPage = () => {
               </button>
               <button 
                 onClick={handleSend}
-                disabled={(!input.trim() && !audioBase64) || isLoading}
+                disabled={(!input.trim() && !audioBase64 && !attachedFile) || isLoading}
                 className="bg-primary text-white p-3.5 rounded-2xl shadow-xl shadow-primary/30 hover:scale-110 active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100"
               >
                 {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>
             </div>
           </div>
-          {audioBase64 && !isRecording && (
-            <div className="mt-2 flex items-center justify-center">
-              <div className="px-4 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Voice Recording Attached</span>
-                <button onClick={() => setAudioBase64(null)} className="text-emerald-600 hover:text-emerald-900">
-                  <RotateCcw className="w-3 h-3" />
-                </button>
-              </div>
+          {(audioBase64 || attachedFile) && !isRecording && (
+            <div className="mt-2 flex items-center justify-center gap-3">
+              {audioBase64 && (
+                <div className="px-4 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Voice Recording Attached</span>
+                  <button onClick={() => setAudioBase64(null)} className="text-emerald-600 hover:text-emerald-900">
+                    <RotateCcw className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+              {attachedFile && (
+                <div className="px-4 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-full flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest truncate max-w-[150px]">{attachedFile.name} Attached</span>
+                  <button onClick={() => setAttachedFile(null)} className="text-blue-600 hover:text-blue-900">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
           <div className="flex items-center justify-center gap-8 mt-4">
@@ -474,7 +580,7 @@ export const AIChatPage = () => {
                 >
                   <p className={`text-xs font-bold truncate pr-6 ${currentSessionId === s.id ? "text-white" : "text-ink"}`}>{s.title}</p>
                   <p className={`text-[10px] font-medium leading-none ${currentSessionId === s.id ? "text-white/60" : "text-ink-muted"}`}>
-                    {s.updatedAt?.toDate ? new Date(s.updatedAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
+                    {s.updatedAt?.toDate ? formatISTTime(s.updatedAt.toDate()) : "Just now"}
                   </p>
                   <button 
                     onClick={(e) => deleteSession(s.id, e)}
@@ -491,13 +597,6 @@ export const AIChatPage = () => {
               </div>
             )}
           </div>
-          
-          <button 
-            onClick={createNewSession}
-            className="absolute bottom-6 left-6 right-6 py-4 bg-primary text-white font-bold rounded-2xl shadow-xl shadow-primary/30 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest z-10"
-          >
-            <Plus className="w-4 h-4" /> Start New Session
-          </button>
         </div>
       </div>
     </div>

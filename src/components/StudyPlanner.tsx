@@ -8,7 +8,6 @@ import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp,
 import { db, isDemoMode } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { motion, AnimatePresence } from "motion/react";
-import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { 
   Calendar, 
   Clock, 
@@ -29,10 +28,11 @@ import {
 } from "lucide-react";
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
+import { formatISTDate, formatISTTime } from "../lib/utils";
+import { getGeminiModel } from "../lib/gemini";
 
 import { calculateBurnoutRisk, type BurnoutMetrics } from "../lib/metrics";
-
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || "");
+import { BurnoutMeter } from "./BurnoutMeter";
 
 export const StudyPlanner = () => {
   const { user } = useFirebase();
@@ -47,20 +47,13 @@ export const StudyPlanner = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [vError, setVError] = useState("");
 
-  const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-    generationConfig: {
-      responseMimeType: "application/json",
-    }
-  });
-
   useEffect(() => {
     if (!user || isDemoMode) {
       if (isDemoMode) {
         const demoTasks = [
-          { id: '1', title: 'Calculus Assignment', time: '09:00 AM', duration: '2h', completed: false, priority: 'High' as const, subject: 'Math', createdAt: new Date(), verified: false },
-          { id: '2', title: 'Chemistry Lab Report', time: '02:00 PM', duration: '1.5h', completed: true, priority: 'Medium' as const, subject: 'Science', createdAt: new Date(), verified: true },
-          { id: '3', title: 'English Essay', time: '04:00 PM', duration: '1h', completed: false, priority: 'Low' as const, subject: 'English', createdAt: new Date(), verified: false }
+          { id: '1', title: 'Calculus Assignment', time: formatISTTime(new Date(new Date().setHours(9, 0))), duration: '2h', completed: false, priority: 'High' as const, subject: 'Math', createdAt: new Date(), verified: false },
+          { id: '2', title: 'Chemistry Lab Report', time: formatISTTime(new Date(new Date().setHours(14, 0))), duration: '1.5h', completed: true, priority: 'Medium' as const, subject: 'Science', createdAt: new Date(), verified: true },
+          { id: '3', title: 'English Essay', time: formatISTTime(new Date(new Date().setHours(16, 0))), duration: '1h', completed: false, priority: 'Low' as const, subject: 'English', createdAt: new Date(), verified: false }
         ];
         setLocalTasks(demoTasks);
         setBurnoutMetrics(calculateBurnoutRisk(demoTasks));
@@ -79,9 +72,9 @@ export const StudyPlanner = () => {
       const tasksData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      }));
+      }) as any);
       setLocalTasks(tasksData);
-      setBurnoutMetrics(calculateBurnoutRisk(tasksData));
+      setBurnoutMetrics(calculateBurnoutRisk(tasksData as any[]));
       setIsInitialLoading(false);
     });
 
@@ -95,17 +88,25 @@ export const StudyPlanner = () => {
     setVError("");
 
     try {
-      const result = await model.generateContent(`
-        You are an Academic Integrity Auditor. 
-        A student claims they completed a task: "${verifyingTask.title}" (${verifyingTask.subject}).
-        They provide this summary: "${verificationInput}"
-        
-        Is this a meaningful synthesis of learning related to the topic? 
-        If it's just "I did it", "DONE", "gibberish", or unrelated, reject it.
-        Return ONLY a JSON object: {"valid": boolean, "feedback": "brief message"}.
-      `);
+      const model = getGeminiModel({
+        model: "gemini-3-flash-preview",
+      });
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: `
+          You are an Academic Integrity Auditor. 
+          A student claims they completed a task: "${verifyingTask.title}" (${verifyingTask.subject}).
+          They provide this summary: "${verificationInput}"
+          
+          Is this a meaningful synthesis of learning related to the topic? 
+          If it's just "I did it", "DONE", "gibberish", or unrelated, reject it.
+          Return ONLY a JSON object: {"valid": boolean, "feedback": "brief message"}.
+        ` }] }],
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
       
-      const data = JSON.parse(result.response.text());
+      const data = JSON.parse(response.text || "{}");
       
       if (data.valid) {
         await completeTask(verifyingTask.id, true);
@@ -175,7 +176,7 @@ export const StudyPlanner = () => {
       setLocalTasks(prev => [{
         id: Math.random().toString(36).substr(2, 9),
         title: "New Study Session (Demo)",
-        time: "10:00 AM",
+        time: formatISTTime(new Date(new Date().setHours(10, 0))),
         duration: "1h 00m",
         completed: false,
         subject: "General",
@@ -240,7 +241,7 @@ export const StudyPlanner = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-ink">Daily Schedule</h3>
-                  <p className="text-[10px] text-ink-muted uppercase font-bold tracking-widest">Saturday, April 18, 2026</p>
+                   <p className="text-[10px] text-ink-muted uppercase font-bold tracking-widest">{formatISTDate()}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -327,34 +328,44 @@ export const StudyPlanner = () => {
         {/* Side Stats */}
         <div className="space-y-8">
           {burnoutMetrics && (
-            <Card className={`p-8 border-none shadow-2xl relative overflow-hidden ${
-              burnoutMetrics.status === 'burnout_risk' ? 'bg-red-600 text-white' : 
-              burnoutMetrics.status === 'strained' ? 'bg-amber-500 text-white' : 
-              'bg-emerald-500 text-white'
+            <Card className={`p-8 border-none shadow-3xl shadow-black/20 relative overflow-hidden text-white transition-all duration-500 ${
+              burnoutMetrics.status === 'burnout_risk' 
+                ? 'bg-gradient-to-br from-red-600 via-rose-600 to-orange-600' 
+                : burnoutMetrics.status === 'strained' 
+                  ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600' 
+                  : 'bg-gradient-to-br from-emerald-500 via-teal-500 to-emerald-600'
             }`}>
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
-                  <Brain className="w-6 h-6 text-white" />
+              <div className="absolute top-0 right-0 -mr-12 -mt-12 w-48 h-48 bg-white/20 rounded-full blur-3xl" />
+              
+              <div className="flex items-center gap-4 mb-8 relative z-10">
+                <div className="w-14 h-14 bg-white/25 backdrop-blur-md rounded-[1.25rem] flex items-center justify-center shadow-inner">
+                  <Brain className="w-7 h-7 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-bold">Burnout Risk</h3>
-                  <p className="text-xs opacity-70 uppercase tracking-widest font-black">{burnoutMetrics.message}</p>
+                  <h3 className="text-xl font-black tracking-tight leading-none">Biometric Load</h3>
+                  <p className="text-[10px] opacity-90 uppercase font-black tracking-[0.2em] mt-1.5">{burnoutMetrics.message}</p>
                 </div>
               </div>
               
-              <div className="space-y-4">
-                <div className="flex justify-between text-xs font-bold font-mono">
-                  <span>Load Score</span>
-                  <span>{Math.round(burnoutMetrics.score)}%</span>
+              <div className="space-y-6 relative z-10">
+                <div className="space-y-2.5">
+                  <div className="flex justify-between items-end">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/80">Cognitive Pressure</span>
+                    <span className="text-2xl font-black font-mono leading-none">{Math.round(burnoutMetrics.score)}%</span>
+                  </div>
+                  <div className="h-3 w-full bg-black/10 rounded-full overflow-hidden shadow-inner p-0.5 border border-white/10">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${burnoutMetrics.score}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      className="h-full bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+                    />
+                  </div>
                 </div>
-                <div className="h-2 w-full bg-white/20 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${burnoutMetrics.score}%` }}
-                    className="h-full bg-white"
-                  />
+                
+                <div className="p-4 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/10">
+                   <p className="text-xs font-bold leading-relaxed">{burnoutMetrics.recommendation}</p>
                 </div>
-                <p className="text-xs leading-relaxed opacity-90">{burnoutMetrics.recommendation}</p>
               </div>
             </Card>
           )}

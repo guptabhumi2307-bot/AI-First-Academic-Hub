@@ -71,6 +71,51 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "messages", "updatedAt"]
+    },
+    "Quiz": {
+      "title": "Published Quiz",
+      "description": "Quizzes published by teachers for students",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "subject": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string" },
+              "question": { "type": "string" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "correctAnswer": { "type": "string" },
+              "explanation": { "type": "string" }
+            }
+          }
+        },
+        "publishedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "questions", "teacherId"]
+    },
+    "QuizAttempt": {
+      "title": "Student Quiz Attempt",
+      "description": "Record of a student completing a quiz",
+      "type": "object",
+      "properties": {
+        "quizId": { "type": "string" },
+        "quizTitle": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "percentage": { "type": "number" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["quizId", "studentId", "teacherId", "score"]
     }
   },
   "firestore": {
@@ -89,6 +134,14 @@
     "/users/{userId}/chatHistory/{sessionId}": {
       "schema": "ChatSession",
       "description": "AI chat history for the user"
+    },
+    "/quizzes/{quizId}": {
+      "schema": "Quiz",
+      "description": "Global collection of published quizzes"
+    },
+    "/quiz_attempts/{attemptId}": {
+      "schema": "QuizAttempt",
+      "description": "Historical record of all quiz attempts"
     }
   }
 }

@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { isDemoMode } from "../lib/firebase";
+import { getGeminiModel } from "../lib/gemini";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Send, Bot, User, X, MessageSquare, Loader2, Mic, CircleStop, Volume2, RotateCcw } from "lucide-react";
+import { Send, Bot, User, X, MessageSquare, Loader2, Mic, CircleStop, Volume2, RotateCcw, Paperclip, Trash2 } from "lucide-react";
+import { Modality } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import ReactMarkdown from "react-markdown";
 
 interface Message {
   role: "user" | "model";
@@ -25,9 +26,12 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [audioBase64, setAudioBase64] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; type: string; data: string } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startRecording = async () => {
     try {
@@ -63,6 +67,44 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const processFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      setAttachedFile({
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        data: base64
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processFile(file);
+    e.target.value = "";
+  };
+
   const playTTS = async (text: string) => {
     if (isSpeaking) return;
     setIsSpeaking(true);
@@ -74,11 +116,14 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
         setIsSpeaking(false);
         return;
       }
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-tts-preview",
-        contents: [{ parts: [{ text: `Say clearly: ${text}` }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
+      const model = getGeminiModel({
+        model: "gemini-3.1-flash-tts-preview", 
+      });
+
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: `Say clearly: ${text}` }] }],
+        generationConfig: {
+          responseModalities: ["audio"],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: 'Kore' },
@@ -114,13 +159,15 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
   };
 
   const handleSend = async () => {
-    if ((!input.trim() && !audioBase64) || isLoading) return;
+    if ((!input.trim() && !audioBase64 && !attachedFile) || isLoading) return;
 
-    const userText = input || "Voice Input";
+    const userText = input || (attachedFile ? `Analyzing ${attachedFile.name}` : "Voice Input");
     const userMessage: Message = { role: "user", text: userText };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setAudioBase64(null);
+    const fileToUpload = attachedFile;
+    setAttachedFile(null);
     setIsLoading(true);
 
     try {
@@ -137,22 +184,33 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
         return;
       }
 
-      const parts: any[] = messages.slice(-5).map(m => ({
-        role: m.role,
-        parts: [{ text: m.text }]
-      }));
-
-      parts.push({
+      const systemInstruction = {
         role: "user",
-        parts: [
-          { text: input || "Please transcribe and answer based on this audio." },
-          ...(audioBase64 ? [{ inlineData: { mimeType: "audio/wav", data: audioBase64 } }] : [])
-        ]
+        parts: [{ text: "SYSTEM INSTRUCTION: You are Rio, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly." }]
+      };
+
+      const messagesForGemini = [
+        systemInstruction,
+        ...messages.slice(-5).map(m => ({
+          role: m.role,
+          parts: [{ text: m.text }]
+        })),
+        {
+          role: "user",
+          parts: [
+            { text: input || (fileToUpload ? `Please analyze this file: ${fileToUpload.name}` : "Please transcribe and answer based on this audio content.") },
+            ...(audioBase64 ? [{ inlineData: { mimeType: "audio/wav", data: audioBase64 } }] : []),
+            ...(fileToUpload ? [{ inlineData: { mimeType: fileToUpload.type, data: fileToUpload.data } }] : [])
+          ]
+        }
+      ];
+
+      const model = getGeminiModel({
+        model: "gemini-3-flash-preview",
       });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: parts
+      const response = await model.generateContent({
+        contents: messagesForGemini
       });
 
       const modelText = response.text || "I'm sorry, I couldn't generate a response.";
@@ -182,8 +240,27 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
             initial={{ x: 400, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 400, opacity: 0 }}
-            className="fixed top-0 right-0 h-full w-full md:w-[400px] bg-white border-l border-neutral-200 z-[70] shadow-2xl flex flex-col"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`fixed top-0 right-0 h-full w-full md:w-[400px] bg-white border-l border-neutral-200 z-[70] shadow-2xl flex flex-col transition-all duration-300 ${isDragging ? "ring-4 ring-primary ring-inset bg-primary/5" : ""}`}
           >
+            {/* Drag Overlay */}
+            <AnimatePresence>
+              {isDragging && (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-[80] flex items-center justify-center bg-primary/20 backdrop-blur-md"
+                >
+                  <div className="bg-white p-6 rounded-3xl shadow-xl text-center border-2 border-dashed border-primary">
+                    <Paperclip className="w-8 h-8 text-primary animate-bounce mx-auto mb-2" />
+                    <p className="font-bold text-sm text-ink">Drop to analyze</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
             {/* Header */}
             <div className="p-6 border-b border-neutral-100 flex items-center justify-between bg-primary text-white">
               <div className="flex items-center gap-3">
@@ -215,7 +292,9 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
                         ? "bg-primary text-white rounded-tr-none" 
                         : "bg-white/40 border border-white/60 text-neutral-800 rounded-tl-none"
                     }`}>
-                      {m.text}
+                      <div className="prose prose-sm max-w-none">
+                        <ReactMarkdown>{m.text}</ReactMarkdown>
+                      </div>
                       {m.role === "model" && (
                         <button 
                           onClick={() => playTTS(m.text)}
@@ -244,26 +323,56 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
 
             {/* Input */}
             <div className="p-6 border-t border-neutral-100">
-              {audioBase64 && !isRecording && (
-                <div className="mb-3 flex items-center justify-between bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100">
-                   <div className="flex items-center gap-2">
-                     <Mic className="w-3 h-3 text-emerald-500" />
-                     <span className="text-[10px] font-bold text-emerald-600">Audio Attached</span>
-                   </div>
-                   <button onClick={() => setAudioBase64(null)} className="text-emerald-400">
-                     <RotateCcw className="w-3 h-3" />
-                   </button>
+              {(audioBase64 || attachedFile) && !isRecording && (
+                <div className="mb-3 space-y-2">
+                  {audioBase64 && (
+                    <div className="flex items-center justify-between bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100">
+                      <div className="flex items-center gap-2">
+                        <Mic className="w-3 h-3 text-emerald-500" />
+                        <span className="text-[10px] font-bold text-emerald-600 uppercase">Audio Attached</span>
+                      </div>
+                      <button onClick={() => setAudioBase64(null)} className="text-emerald-400">
+                        <RotateCcw className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                  {attachedFile && (
+                    <div className="flex items-center justify-between bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100">
+                      <div className="flex items-center gap-2">
+                        <Paperclip className="w-3 h-3 text-blue-500" />
+                        <span className="text-[10px] font-bold text-blue-600 uppercase truncate max-w-[200px]">{attachedFile.name} Attached</span>
+                      </div>
+                      <button onClick={() => setAttachedFile(null)} className="text-blue-400">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="relative">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  accept="image/*,.pdf,.docx,.txt"
+                />
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                  placeholder="Ask Rio anything..."
-                  className="w-full bg-white/40 border border-white/60 rounded-2xl pl-4 pr-24 py-4 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
+                  placeholder={attachedFile ? `Adding ${attachedFile.name}...` : "Ask Rio anything..."}
+                  className="w-full bg-white/40 border border-white/60 rounded-2xl pl-12 pr-24 py-4 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
                 />
+                <div className="absolute left-2 top-1/2 -translate-y-1/2">
+                   <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-neutral-100 text-neutral-400 transition-colors"
+                   >
+                     <Paperclip className="w-4 h-4" />
+                   </button>
+                </div>
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                   <button 
                     onClick={isRecording ? stopRecording : startRecording}
@@ -273,7 +382,7 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
                   </button>
                   <button 
                     onClick={handleSend}
-                    disabled={(!input.trim() && !audioBase64) || isLoading}
+                    disabled={(!input.trim() && !audioBase64 && !attachedFile) || isLoading}
                     className="w-10 h-10 bg-primary text-white rounded-xl flex items-center justify-center hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 transition-all shadow-lg shadow-primary/20"
                   >
                     <Send className="w-4 h-4" />

@@ -2,10 +2,8 @@ import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import { motion } from "motion/react";
 import { Share2, Maximize2, ZoomIn, ZoomOut, RotateCcw, Sparkles, Loader2 } from "lucide-react";
-import { GoogleGenAI, Type } from "@google/genai";
 import { isDemoMode } from "../lib/firebase";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import { getGeminiModel } from "../lib/gemini";
 
 interface Node extends d3.SimulationNodeDatum {
   id: string;
@@ -73,33 +71,31 @@ export const KnowledgeGraph = () => {
         return;
       }
 
-      const prompt = `Given these conceptual nodes: ${JSON.stringify(graphData.nodes.map(n => n.label))}, identify one deep conceptual connection between two nodes that isn't already linked. Return a JSON object with { sourceNodeId, targetNodeId, correlationValue (1-10), explanation }.`;
+      const prompt = `Given these conceptual nodes: ${JSON.stringify(graphData.nodes.map(n => ({ id: n.id, label: n.label })))}, identify one deep conceptual connection between two nodes that isn't already linked. Return a JSON object with { sourceNodeId, targetNodeId, correlationValue (1-10), explanation }. Ensure you use the provided 'id' for sourceNodeId and targetNodeId.`;
       
-      const response = await ai.models.generateContent({
+      const model = getGeminiModel({
         model: "gemini-3-flash-preview",
-        contents: [{ text: prompt }],
+      });
+
+      const response = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              sourceNodeId: { type: Type.STRING },
-              targetNodeId: { type: Type.STRING },
-              correlationValue: { type: Type.NUMBER },
-              explanation: { type: Type.STRING }
-            },
-            required: ["sourceNodeId", "targetNodeId", "correlationValue"]
-          }
         }
       });
 
-      const result = JSON.parse(response.text || "{}");
-      if (result.sourceNodeId && result.targetNodeId) {
-        const newLink = { source: result.sourceNodeId, target: result.targetNodeId, value: result.correlationValue };
+      const data = JSON.parse(response.text || "{}");
+      
+      // Verify node IDs exist before adding the link
+      const nodeIds = new Set(graphData.nodes.map(n => n.id));
+      if (data.sourceNodeId && data.targetNodeId && nodeIds.has(data.sourceNodeId) && nodeIds.has(data.targetNodeId)) {
+        const newLink = { source: data.sourceNodeId, target: data.targetNodeId, value: data.correlationValue };
         setGraphData(prev => ({
           ...prev,
           links: [...prev.links, newLink]
         }));
+      } else if (data.sourceNodeId && data.targetNodeId) {
+        console.warn("AI generated invalid node IDs:", data.sourceNodeId, data.targetNodeId);
       }
     } catch (error) {
       console.error("Neural scan failed:", error);
