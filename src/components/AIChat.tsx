@@ -19,7 +19,7 @@ interface Message {
 
 export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const [messages, setMessages] = useState<Message[]>([
-    { role: "model", text: "Hello! I'm Rio, your personal study assistant. How can I help you today?" }
+    { role: "model", text: "Hello! I'm Reo, your personal study assistant. How can I help you today?" }
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -186,7 +186,7 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
 
       const systemInstruction = {
         role: "user",
-        parts: [{ text: "SYSTEM INSTRUCTION: You are Rio, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly." }]
+        parts: [{ text: "SYSTEM INSTRUCTION: You are Reo, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly." }]
       };
 
       const messagesForGemini = [
@@ -216,7 +216,7 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
       const modelText = response.text || "I'm sorry, I couldn't generate a response.";
       setMessages((prev) => [...prev, { role: "model", text: modelText }]);
     } catch (error) {
-      console.error("Rio Chat Error:", error);
+      console.error("Reo Chat Error:", error);
       setMessages((prev) => [...prev, { role: "model", text: "Something went wrong. Please check your connection." }]);
     } finally {
       setIsLoading(false);
@@ -268,7 +268,7 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
                   <Bot className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="font-bold tracking-tight">Rio</h3>
+                  <h3 className="font-bold tracking-tight">Reo</h3>
                   <p className="text-xs opacity-80">Always active</p>
                 </div>
               </div>
@@ -362,7 +362,7 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                  placeholder={attachedFile ? `Adding ${attachedFile.name}...` : "Ask Rio anything..."}
+                  placeholder={attachedFile ? `Adding ${attachedFile.name}...` : "Ask Reo anything..."}
                   className="w-full bg-white/40 border border-white/60 rounded-2xl pl-12 pr-24 py-4 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
                 />
                 <div className="absolute left-2 top-1/2 -translate-y-1/2">

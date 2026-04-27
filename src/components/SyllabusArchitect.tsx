@@ -6,6 +6,7 @@ import { db, isDemoMode, handleFirestoreError } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { getGeminiModel } from "../lib/gemini";
 import { formatISTShortDate } from "../lib/utils";
+import { Type } from "@google/genai";
 
 interface RoadmapItem {
   week: string;
@@ -100,16 +101,59 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
         contents: [{ role: "user", parts }],
         config: {
           responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              roadmap: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    week: { type: Type.STRING },
+                    topic: { type: Type.STRING },
+                    deadline: { type: Type.STRING },
+                    priority: { type: Type.STRING, enum: ["High", "Medium", "Low"] }
+                  },
+                  required: ["week", "topic", "priority"]
+                }
+              },
+              summary: {
+                type: Type.OBJECT,
+                properties: {
+                  primaryFocus: { type: Type.STRING },
+                  totalTopics: { type: Type.NUMBER },
+                  criticalMilestones: { type: Type.NUMBER },
+                  estimatedWorkload: { type: Type.STRING }
+                },
+                required: ["primaryFocus", "totalTopics", "criticalMilestones", "estimatedWorkload"]
+              }
+            },
+            required: ["roadmap", "summary"]
+          }
         }
       });
 
       const text = response.text;
       if (!text) throw new Error("Empty response from AI");
 
-      const data = JSON.parse(text);
-      if (data && data.roadmap && Array.isArray(data.roadmap)) {
+      // Robust JSON extraction
+      let cleanedText = text.trim();
+      if (cleanedText.includes("```")) {
+        const match = cleanedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (match) {
+          cleanedText = match[1];
+        }
+      }
+
+      const data = JSON.parse(cleanedText);
+      if (data && Array.isArray(data.roadmap)) {
         setRoadmap(data.roadmap);
-        setSummary(data.summary);
+        setSummary(data.summary || {
+          primaryFocus: "Syllabus Analysis",
+          totalTopics: data.roadmap.length,
+          criticalMilestones: data.roadmap.filter((r: any) => r.priority === "High").length,
+          estimatedWorkload: "Standard"
+        });
       } else {
         throw new Error("Invalid roadmap format");
       }

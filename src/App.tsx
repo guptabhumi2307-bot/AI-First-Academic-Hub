@@ -146,7 +146,7 @@ const AppContent = () => {
           <div className="w-24 h-24 rounded-[2.5rem] bg-primary flex items-center justify-center text-white mx-auto mb-8 shadow-2xl shadow-primary/30 rotate-3">
             <Sparkles className="w-12 h-12" />
           </div>
-          <h1 className="text-4xl font-black text-ink mb-3 italic">Reoul</h1>
+          <h1 className="text-4xl font-black text-ink mb-3 italic">Reowl</h1>
           <p className="text-ink-muted mb-10 font-light leading-relaxed">The ultimate academic command center. Connect to save your syllabus, notes, and progress.</p>
           <button 
             onClick={async () => {
@@ -216,7 +216,7 @@ const AppContent = () => {
                     <div className="w-20 h-20 bg-primary/10 text-primary rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-primary/5">
                       <Sparkles className="w-10 h-10" />
                     </div>
-                    <h3 className="text-2xl font-black text-ink">Search Reoul</h3>
+                    <h3 className="text-2xl font-black text-ink">Search Reowl</h3>
                     <p className="text-ink-muted text-sm max-w-sm mx-auto leading-relaxed">Find any academic content, search through AI chat history, or jump directly back into your studies.</p>
                   </div>
                 ) : filteredSearch.length > 0 ? (
@@ -275,7 +275,7 @@ const AppContent = () => {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
                 >
-                  <h1 className="text-xl font-black tracking-tight text-white italic leading-none">Reoul</h1>
+                  <h1 className="text-xl font-black tracking-tight text-white italic leading-none">Reowl</h1>
                   <p className="text-[10px] uppercase tracking-widest text-white/50 font-black mt-0.5">Student Hub</p>
                 </motion.div>
               )}
@@ -473,7 +473,7 @@ const AppContent = () => {
                     <Sparkles className="w-10 h-10" />
                   </div>
                   <h3 className="text-2xl font-bold text-ink">{activeTab} Page Coming Soon</h3>
-                  <p className="text-ink-muted max-w-sm">We're currently building our this section of Reoul. Check back soon!</p>
+                  <p className="text-ink-muted max-w-sm">We're currently building our this section of Reowl. Check back soon!</p>
                   <button onClick={() => setActiveTab("Resources")} className="px-6 py-3 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/20">Go to Resources</button>
                 </div>
               )}

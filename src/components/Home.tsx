@@ -62,7 +62,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
   const [burnoutMetrics, setBurnoutMetrics] = useState<BurnoutMetrics | null>(null);
   const [latestAttempt, setLatestAttempt] = useState<any>(null);
   const [latestResource, setLatestResource] = useState<any>(null);
-  const [academicInsight, setAcademicInsight] = useState<string>("Rio is analyzing your performance...");
+  const [academicInsight, setAcademicInsight] = useState<string>("Reo is analyzing your performance...");
   const [recommendation, setRecommendation] = useState<{ text: string, link: string }>({ text: "Review your latest module", link: "Notes" });
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
 
@@ -308,7 +308,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
           subjects: studentSubjects
         };
 
-        const prompt = `You are Rio, an AI academic advisor. Use this student performance data:
+        const prompt = `You are Reo, an AI academic advisor. Use this student performance data:
         Quizzes: ${JSON.stringify(performanceSummary.quizzes)}
         Tasks: ${JSON.stringify(performanceSummary.tasks)}
         Major Subjects: ${performanceSummary.subjects.join(", ")}
@@ -628,7 +628,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
                  <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center mb-8 shadow-xl border border-white/20">
                     <Sparkles className="w-10 h-10 text-white" />
                  </div>
-                 <h3 className="text-2xl font-black mb-4 leading-tight italic">Rio's Academic Insights</h3>
+                 <h3 className="text-2xl font-black mb-4 leading-tight italic">Reo's Academic Insights</h3>
                  <div className="min-h-[80px] mb-8">
                     {isGeneratingInsight ? (
                       <div className="space-y-2 animate-pulse">

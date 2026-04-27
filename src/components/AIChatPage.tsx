@@ -61,7 +61,7 @@ export const AIChatPage = () => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(localStorage.getItem("last_active_chat"));
   const [messages, setMessages] = useState<Message[]>([
-    { role: "model", text: "Welcome to the Rio Power Chat! I can help you analyze documents, solve equations, or summarize your entire syllabus. What's on your mind?" }
+    { role: "model", text: "Welcome to the Reo Power Chat! I can help you analyze documents, solve equations, or summarize your entire syllabus. What's on your mind?" }
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -153,7 +153,7 @@ export const AIChatPage = () => {
       const path = `/users/${user.uid}/chatHistory`;
       const docRef = await addDoc(collection(db!, "users", user.uid, "chatHistory"), {
         title: "New Academic Inquiry",
-        messages: [{ role: "model", text: "Welcome back! How can Rio assist you in this new session?" }],
+        messages: [{ role: "model", text: "Welcome back! How can Reo assist you in this new session?" }],
         updatedAt: serverTimestamp()
       });
       setCurrentSessionId(docRef.id);
@@ -281,7 +281,7 @@ export const AIChatPage = () => {
 
     const systemInstruction = {
       role: "user",
-      parts: [{ text: "SYSTEM INSTRUCTION: You are Rio, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly and answer questions related to it." }]
+      parts: [{ text: "SYSTEM INSTRUCTION: You are Reo, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly and answer questions related to it." }]
     };
 
     try {
@@ -332,7 +332,7 @@ export const AIChatPage = () => {
         }
       }
     } catch (error) {
-      console.error("Rio Chat Error:", error);
+      console.error("Reo Chat Error:", error);
       setMessages((prev) => [...prev, { role: "model", text: "Something went wrong. Please check your connection." }]);
     } finally {
       setIsLoading(false);
@@ -362,7 +362,7 @@ export const AIChatPage = () => {
                   <Paperclip className="w-10 h-10 text-primary animate-bounce" />
                 </div>
                 <h3 className="text-2xl font-black text-ink mb-2">Drop to Analyze</h3>
-                <p className="text-ink-muted">Rio will read your document instantly</p>
+                <p className="text-ink-muted">Reo will read your document instantly</p>
               </div>
             </motion.div>
           )}
@@ -374,7 +374,7 @@ export const AIChatPage = () => {
               <Bot className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="font-bold text-ink text-lg tracking-tight">Rio Assistant</h3>
+              <h3 className="font-bold text-ink text-lg tracking-tight">Reo Assistant</h3>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                 <p className="text-[10px] text-ink-muted uppercase font-bold tracking-widest">Active • Gemini 3 Flash</p>
