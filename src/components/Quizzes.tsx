@@ -5,8 +5,8 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { isDemoMode, db } from "../lib/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
+import { isDemoMode, db, handleFirestoreError } from "../lib/firebase";
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, deleteDoc } from "firebase/firestore";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { getGeminiModel } from "../lib/gemini";
 import { 
@@ -62,7 +62,7 @@ interface PublishedQuiz {
 }
 
 export const Quizzes = () => {
-  const { user } = useFirebase();
+  const { user, profile } = useFirebase();
   const [quizzes, setQuizzes] = useState<PublishedQuiz[]>([]);
   const [activeQuiz, setActiveQuiz] = useState<PublishedQuiz | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -83,7 +83,11 @@ export const Quizzes = () => {
       return;
     }
 
-    const q = query(collection(db!, "quizzes"), orderBy("publishedAt", "desc"));
+    const q = query(
+      collection(db!, "quizzes"), 
+      where("visibility", "==", "public"),
+      orderBy("publishedAt", "desc")
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedQuizzes = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -92,7 +96,7 @@ export const Quizzes = () => {
       setQuizzes(fetchedQuizzes);
       setIsLoadingQuizzes(false);
     }, (error) => {
-      console.error("Fetch quizzes failed:", error);
+      handleFirestoreError(error, "list" as any, "quizzes");
       setIsLoadingQuizzes(false);
     });
 
@@ -131,7 +135,7 @@ export const Quizzes = () => {
           id: "generated-" + Date.now(),
           title: data.title || topic,
           teacherId: "system",
-          teacherName: "Rio AI",
+          teacherName: "Reo AI",
           questions: normalizedQuestions
         };
         setActiveQuiz(generatedQuiz);
@@ -165,7 +169,7 @@ export const Quizzes = () => {
         setQuizFinished(false);
         setSelectedOption(null);
       } else {
-        alert("Rio had trouble architecting your quiz. Please try a different topic.");
+        alert("Reo had trouble architecting your quiz. Please try a different topic.");
       }
     } finally {
       setIsGenerating(false);
@@ -200,9 +204,14 @@ export const Quizzes = () => {
   useEffect(() => {
     if (!user || isDemoMode) return;
 
-    const q = query(collection(db!, "users", user.uid, "dismissedQuizzes"));
+    const q = query(
+      collection(db!, "users", user.uid, "dismissedQuizzes"),
+      where("userId", "==", user.uid)
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setDismissedQuizzes(snapshot.docs.map(doc => doc.id));
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, `users/${user.uid}/dismissedQuizzes`);
     });
 
     return () => unsubscribe();
@@ -217,6 +226,7 @@ export const Quizzes = () => {
     try {
       const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
       await setDoc(doc(db!, "users", user!.uid, "dismissedQuizzes", quizId), {
+        userId: user!.uid,
         dismissedAt: serverTimestamp()
       });
     } catch (error) {
@@ -225,18 +235,17 @@ export const Quizzes = () => {
   };
 
   const handleDeleteQuiz = async (quizId: string) => {
-    if (!window.confirm("Are you sure you want to delete this quiz for everyone?")) return;
+    if (!user || !window.confirm("Are you sure you want to delete this quiz for everyone?")) return;
     
     try {
       if (!isDemoMode) {
-        const { deleteDoc, doc } = await import("firebase/firestore");
         await deleteDoc(doc(db!, "quizzes", quizId));
+        alert("Quiz deleted successfully.");
       } else {
         setQuizzes(prev => prev.filter(q => q.id !== quizId));
       }
     } catch (error) {
-      console.error("Delete failed:", error);
-      alert("Failed to delete quiz.");
+      handleFirestoreError(error, "delete" as any, `quizzes/${quizId}`);
     }
   };
 
@@ -408,7 +417,7 @@ export const Quizzes = () => {
               className="glass p-10 rounded-[3rem] w-full max-w-lg relative z-10 shadow-3xl bg-white border-2 border-primary/10"
             >
               <h3 className="text-2xl font-black text-ink mb-6 tracking-tight">Generate New Quiz</h3>
-              <p className="text-sm text-ink-muted mb-8 font-light leading-relaxed">Describe a subject and Rio will architect a custom assessment for you.</p>
+              <p className="text-sm text-ink-muted mb-8 font-light leading-relaxed">Describe a subject and Reo will architect a custom assessment for you.</p>
                 <div className="space-y-4">
                   <p className="text-[10px] font-black uppercase text-ink-muted tracking-widest px-1">Difficulty Level</p>
                   <div className="grid grid-cols-3 gap-3">
@@ -442,7 +451,7 @@ export const Quizzes = () => {
                     disabled={!selectedTopic.trim()}
                     className="w-full py-4 bg-primary text-white rounded-2xl font-bold shadow-xl shadow-primary/30 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
                   >
-                    Generate with Rio
+                    Generate with Reo
                   </button>
                 </div>
             </motion.div>
@@ -463,7 +472,7 @@ export const Quizzes = () => {
              className="px-6 py-3 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/30 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
           >
             {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {isGenerating ? "Rio is Architecting..." : "Generate AI Quiz"}
+            {isGenerating ? "Reo is Architecting..." : "Generate AI Quiz"}
           </button>
         </div>
       </div>
@@ -524,13 +533,13 @@ export const Quizzes = () => {
                     >
                       <EyeOff className="w-4 h-4" />
                     </button>
-                    {(user?.uid === quiz.teacherId || quiz.teacherId === "system" || user?.uid === "H2m6P5R7Z9mK") && (
+                    {user?.uid === quiz.teacherId && (
                       <button 
-                        onClick={() => handleDeleteQuiz(quiz.id)}
-                        className="p-2 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        onClick={(e) => { e.stopPropagation(); handleDeleteQuiz(quiz.id); }}
+                        className="p-2.5 text-neutral-400 hover:text-red-500 hover:bg-white rounded-xl transition-all border border-transparent hover:border-red-100 shadow-sm"
                         title="Delete for Everyone"
                       >
-                        <Trash className="w-4 h-4" />
+                        <Trash className="w-5 h-5" />
                       </button>
                     )}
                   </div>

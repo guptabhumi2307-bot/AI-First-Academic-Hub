@@ -2,8 +2,10 @@ import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import { motion } from "motion/react";
 import { Share2, Maximize2, ZoomIn, ZoomOut, RotateCcw, Sparkles, Loader2 } from "lucide-react";
-import { isDemoMode } from "../lib/firebase";
+import { isDemoMode, db } from "../lib/firebase";
 import { getGeminiModel } from "../lib/gemini";
+import { useFirebase } from "../contexts/FirebaseContext";
+import { collection, query, limit, onSnapshot } from "firebase/firestore";
 
 interface Node extends d3.SimulationNodeDatum {
   id: string;
@@ -53,10 +55,50 @@ const data = {
 };
 
 export const KnowledgeGraph = () => {
+  const { user } = useFirebase();
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [graphData, setGraphData] = React.useState(data);
   const [isScanning, setIsScanning] = React.useState(false);
+
+  useEffect(() => {
+    if (!user || isDemoMode) return;
+
+    // Fetch tasks to create subject/topic nodes
+    const qTasks = query(collection(db!, "users", user.uid, "tasks"), limit(30));
+    const unsubscribeTasks = onSnapshot(qTasks, (snapshot) => {
+      const taskNodes = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          group: data.priority === 'High' ? 1 : 2,
+          label: data.title,
+          size: data.priority === 'High' ? 30 : 20
+        };
+      });
+
+      if (taskNodes.length > 0) {
+        setGraphData(prev => {
+          const existingIds = new Set(prev.nodes.map(n => n.id));
+          const newNodes = taskNodes.filter(n => !existingIds.has(n.id));
+          
+          // Create some logical links based on subject/categories if available
+          const newLinks = newNodes.slice(0, 10).map((n, i) => ({
+            source: n.id,
+            target: prev.nodes[Math.floor(Math.random() * prev.nodes.length)].id,
+            value: 2
+          }));
+
+          return {
+            nodes: [...prev.nodes, ...newNodes].slice(0, 50),
+            links: [...prev.links, ...newLinks].slice(0, 100)
+          };
+        });
+      }
+    });
+
+    return () => unsubscribeTasks();
+  }, [user]);
 
   const scanConnections = async () => {
     setIsScanning(true);
@@ -277,8 +319,8 @@ export const KnowledgeGraph = () => {
             </h4>
             <p className="text-white/70 text-xs leading-relaxed font-light mb-6">
               {isScanning 
-                ? "Rio is analyzing deep correlations between your notes..." 
-                : "Discover hidden connections between your subjects using Rio's relational intelligence."}
+                ? "Reo is analyzing deep correlations between your notes..." 
+                : "Discover hidden connections between your subjects using Reo's relational intelligence."}
             </p>
             <button 
               onClick={scanConnections}

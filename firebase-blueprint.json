@@ -54,7 +54,7 @@
     },
     "ChatSession": {
       "title": "AI Chat Session",
-      "description": "Historical interactions with Rio AI",
+      "description": "Historical interactions with Reo AI",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
@@ -116,6 +116,74 @@
         "completedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["quizId", "studentId", "teacherId", "score"]
+    },
+    "Classroom": {
+      "title": "Classroom",
+      "description": "A group of students managed by a teacher",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "code": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "studentIds": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "code", "teacherId"]
+    },
+    "SharedResource": {
+      "title": "Shared Resource",
+      "description": "A resource or note shared with a classroom",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["NOTE", "FILE", "QUIZ"] },
+        "content": { "type": "object" },
+        "classId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "sharedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "type", "classId", "teacherId"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Alerts for students or teachers",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["CLASS_ADDED", "RESOURCE_SHARED", "QUIZ_ASSIGNED"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "metadata": { "type": "object" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "createdAt"]
+    },
+    "LessonScript": {
+      "title": "Lesson Script",
+      "description": "AI-generated lesson plans for teachers",
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "content": {
+          "type": "object",
+          "properties": {
+            "engagementHooks": { "type": "array", "items": { "type": "string" } },
+            "neuralCheckpoints": { "type": "array", "items": { "type": "string" } },
+            "analogies": {
+              "type": "object",
+              "properties": {
+                "beginner": { "type": "string" },
+                "intermediate": { "type": "string" },
+                "advanced": { "type": "string" }
+              }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["topic", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -131,6 +199,14 @@
       "schema": "Resource",
       "description": "User-specific saved resources"
     },
+    "/users/{userId}/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "User specific notifications"
+    },
+    "/users/{userId}/lessonScripts/{scriptId}": {
+      "schema": "LessonScript",
+      "description": "Teacher's generated lesson scripts"
+    },
     "/users/{userId}/chatHistory/{sessionId}": {
       "schema": "ChatSession",
       "description": "AI chat history for the user"
@@ -142,6 +218,14 @@
     "/quiz_attempts/{attemptId}": {
       "schema": "QuizAttempt",
       "description": "Historical record of all quiz attempts"
+    },
+    "/classrooms/{classId}": {
+      "schema": "Classroom",
+      "description": "Global collection of classrooms"
+    },
+    "/classrooms/{classId}/sharedResources/{resourceId}": {
+      "schema": "SharedResource",
+      "description": "Resources shared within a specific classroom"
     }
   }
 }

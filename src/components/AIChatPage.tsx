@@ -33,6 +33,7 @@ import {
   collection, 
   addDoc, 
   query, 
+  where,
   orderBy, 
   onSnapshot, 
   doc, 
@@ -81,6 +82,7 @@ export const AIChatPage = () => {
 
     const q = query(
       collection(db!, "users", user.uid, "chatHistory"),
+      where("userId", "==", user.uid),
       orderBy("updatedAt", "desc")
     );
 
@@ -90,6 +92,8 @@ export const AIChatPage = () => {
         ...doc.data()
       })) as ChatSession[];
       setSessions(sessionData);
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, `users/${user.uid}/chatHistory`);
     });
 
     return () => unsubscribe();
@@ -152,6 +156,7 @@ export const AIChatPage = () => {
     try {
       const path = `/users/${user.uid}/chatHistory`;
       const docRef = await addDoc(collection(db!, "users", user.uid, "chatHistory"), {
+        userId: user.uid,
         title: "New Academic Inquiry",
         messages: [{ role: "model", text: "Welcome back! How can Reo assist you in this new session?" }],
         updatedAt: serverTimestamp()
@@ -317,6 +322,7 @@ export const AIChatPage = () => {
         if (!currentSessionId) {
           // Auto-create session if first message
           const docRef = await addDoc(collection(db!, "users", user.uid, "chatHistory"), {
+            userId: user.uid,
             title: userText.slice(0, 30) + (userText.length > 30 ? "..." : ""),
             messages: finalMessages,
             updatedAt: serverTimestamp()

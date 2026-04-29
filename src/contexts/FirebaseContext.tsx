@@ -19,6 +19,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const unsubscribeProfileRef = React.useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const isDemoMode = !firebaseConfig.apiKey || 
@@ -28,21 +29,30 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                        firebaseConfig.apiKey === "";
 
     if (isDemoMode) {
-      const savedUser = localStorage.getItem("reoul_guest_user");
+      const savedUser = localStorage.getItem("reowl_guest_user");
       if (savedUser) {
         const parsedUser = JSON.parse(savedUser);
         setUser(parsedUser);
         setProfile({
-          displayName: parsedUser.displayName,
+          displayName: parsedUser.displayName || "",
           role: parsedUser.role || null,
           stats: parsedUser.stats || { level: 5, goalsHit: 12, studyTime: 420 },
         });
+      } else {
+        // Force setup for new guests too
+        setProfile({ displayName: "", role: null });
       }
       setLoading(false);
       return;
     }
 
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      // Clean up previous profile listener if any
+      if (unsubscribeProfileRef.current) {
+        unsubscribeProfileRef.current();
+        unsubscribeProfileRef.current = null;
+      }
+
       setUser(currentUser);
       if (currentUser) {
         // Validate Connection to Firestore
@@ -67,7 +77,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               await setDoc(userRef, {
                 userId: currentUser.uid,
                 email: currentUser.email,
-                displayName: currentUser.displayName,
+                displayName: "", // Start with empty so we can prompt
                 photoURL: currentUser.photoURL,
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -87,27 +97,37 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         // Listen to profile changes
         console.log("ProfileSync: Starting listener for", currentUser.uid);
-        const unsubscribeProfile = onSnapshot(doc(db!, "users", currentUser.uid), (doc) => {
+        unsubscribeProfileRef.current = onSnapshot(doc(db!, "users", currentUser.uid), (doc) => {
           console.log("ProfileSync: Received data, exists:", doc.exists());
           clearTimeout(timeoutId);
-          setProfile(doc.data() || null);
+          const data = doc.data();
+          if (data) {
+            setProfile({
+              ...data,
+              displayName: data.displayName || "",
+              photoURL: data.photoURL || currentUser.photoURL,
+            });
+          } else {
+            setProfile(null);
+          }
           setLoading(false);
         }, (error) => {
           console.error("ProfileSync: Permission Error for UID:", currentUser.uid, "Error:", error);
           clearTimeout(timeoutId);
           setLoading(false);
         });
-        return () => {
-          clearTimeout(timeoutId);
-          unsubscribeProfile();
-        };
       } else {
         setProfile(null);
         setLoading(false);
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfileRef.current) {
+        unsubscribeProfileRef.current();
+      }
+    };
   }, []);
 
   const signIn = async () => {
@@ -120,7 +140,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (isDemoMode) {
         setUser(newUser);
         setProfile({
-          displayName: newUser.displayName,
+          displayName: "", // Force manual entry
           role: (newUser as any).role || null,
           stats: { level: 5, goalsHit: 12, studyTime: 420 },
         });

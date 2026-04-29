@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, serverTimestamp, getDocFromServer } from "firebase/firestore";
 import firebaseConfig from "../../firebase-applet-config.json";
 
 export const isDemoMode = !firebaseConfig.apiKey || 
@@ -42,6 +42,11 @@ export const handleFirestoreError = (error: any, operationType: FirestoreErrorIn
     };
     throw new Error(JSON.stringify(errorInfo));
   }
+  
+  if (error.code === 'unavailable') {
+    console.warn("Firestore is currently unavailable (offline or connection failed). The app will operate in offline mode.");
+  }
+  
   throw error;
 };
 
@@ -57,11 +62,11 @@ export const signInWithGoogle = async () => {
     // Return a mock user for Demo Mode
     const mockUser = {
       uid: "guest-user-id",
-      email: "guest@reoul.app",
-      displayName: "Guest Scholar",
+      email: "guest@reowl.app",
+      displayName: "",
       photoURL: "https://picsum.photos/seed/guest/200/200",
     };
-    localStorage.setItem("reoul_guest_user", JSON.stringify(mockUser));
+    localStorage.setItem("reowl_guest_user", JSON.stringify(mockUser));
     return mockUser as any;
   }
 
@@ -81,7 +86,7 @@ export const signInWithGoogle = async () => {
       await setDoc(userRef, {
         userId: user.uid,
         email: user.email,
-        displayName: user.displayName,
+        displayName: "", // Start empty
         photoURL: user.photoURL,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -94,9 +99,10 @@ export const signInWithGoogle = async () => {
       });
     } else {
       console.log("SignIn: Updating existing user profile");
+      const existingData = userSnap.data();
       await setDoc(userRef, {
-        displayName: user.displayName,
-        photoURL: user.photoURL,
+        displayName: existingData?.displayName || "",
+        photoURL: existingData?.photoURL || user.photoURL,
         updatedAt: serverTimestamp()
       }, { merge: true });
     }
@@ -111,7 +117,7 @@ export const signInWithGoogle = async () => {
 
 export const logout = () => {
   if (isDemoMode) {
-    localStorage.removeItem("reoul_guest_user");
+    localStorage.removeItem("reowl_guest_user");
     window.location.reload(); // Refresh to clear state
     return Promise.resolve();
   }
@@ -120,11 +126,11 @@ export const logout = () => {
 
 export const updateUserProfile = async (uid: string, data: any) => {
   if (isDemoMode) {
-    const savedUser = localStorage.getItem("reoul_guest_user");
+    const savedUser = localStorage.getItem("reowl_guest_user");
     if (savedUser) {
       const parsedUser = JSON.parse(savedUser);
       const updatedUser = { ...parsedUser, ...data };
-      localStorage.setItem("reoul_guest_user", JSON.stringify(updatedUser));
+      localStorage.setItem("reowl_guest_user", JSON.stringify(updatedUser));
       return updatedUser;
     }
     return data;

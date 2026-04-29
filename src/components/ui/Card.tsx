@@ -5,8 +5,11 @@
 
 import React from "react";
 
-export const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`glass rounded-[2rem] p-6 border-white/60 shadow-xl ${className}`}>
+export const Card = ({ children, className = "", ...props }: { children: React.ReactNode; className?: string; [key: string]: any }) => (
+  <div 
+    className={`glass rounded-[2rem] p-6 border-white/60 shadow-xl ${className}`}
+    {...props}
+  >
     {children}
   </div>
 );

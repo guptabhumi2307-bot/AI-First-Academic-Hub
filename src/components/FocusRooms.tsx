@@ -127,6 +127,21 @@ export const FocusRooms = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const [momentum, setMomentum] = useState(65);
+
+  useEffect(() => {
+    // Pulse momentum based on timer activity
+    const interval = setInterval(() => {
+      setMomentum(prev => {
+        if (currentRoom?.isActive) {
+          return Math.min(100, prev + (Math.random() * 2));
+        }
+        return Math.max(30, prev - (Math.random() * 1.5));
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [currentRoom?.isActive]);
+
   const rooms = [
     { name: "Deep Work Library", users: 12, mode: "Silent", icon: Globe },
     { name: "STEM Study Group", users: 5, mode: "Collaborative", icon: Brain },
@@ -233,6 +248,19 @@ export const FocusRooms = () => {
         <div className={isChatOpen ? "lg:col-span-8" : "lg:col-span-8"}>
           <div className="space-y-8">
               <div className={`bg-gradient-to-br from-indigo-600 via-primary to-purple-700 min-h-[450px] rounded-[4rem] text-white flex flex-col items-center justify-center relative overflow-hidden shadow-2xl transition-all duration-700 group ${currentRoom?.isActive ? 'shadow-primary/50 ring-8 ring-primary/10' : 'shadow-primary/30'}`}>
+               {/* Momentum Indicator */}
+               <div className="absolute top-10 left-10 flex flex-col items-start gap-1 z-20">
+                 <span className="text-[8px] font-black uppercase tracking-[0.3em] opacity-40">Group Momentum</span>
+                 <div className="flex items-center gap-2">
+                    <div className="w-32 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                       <motion.div 
+                        animate={{ width: `${momentum}%` }}
+                        className="h-full bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]" 
+                       />
+                    </div>
+                    <span className="text-[10px] font-black">{Math.round(momentum)}%</span>
+                 </div>
+               </div>
                {/* Background Effects */}
                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(255,255,255,0.1),transparent)]" />
                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/10 rounded-full blur-[100px] transition-all duration-1000 ${currentRoom?.isActive ? 'scale-150 opacity-100 animate-pulse' : 'scale-75 opacity-20'}`} />

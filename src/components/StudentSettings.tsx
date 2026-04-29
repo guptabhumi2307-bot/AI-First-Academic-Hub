@@ -416,7 +416,7 @@ export const StudentSettings = () => {
            </div>
 
            <div className="pt-4">
-              <p className="text-[8px] text-ink-muted italic text-center font-medium">Rio AI adapts to your learning curve in real-time.</p>
+              <p className="text-[8px] text-ink-muted italic text-center font-medium">Reo AI adapts to your learning curve in real-time.</p>
            </div>
         </Card>
 

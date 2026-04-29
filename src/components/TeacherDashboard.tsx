@@ -35,6 +35,9 @@ import { TeacherSettings } from "./TeacherSettings";
 import { Classrooms } from "./Classrooms";
 import { QuizBuilder } from "./QuizBuilder";
 import { TeacherAnalytics } from "./TeacherAnalytics";
+import { SmartNotes } from "./SmartNotes";
+import { ResourceManager } from "./ResourceManager";
+import { LessonScriptGenerator } from "./LessonScriptGenerator";
 
 const SidebarItem = ({ icon: Icon, label, active = false, onClick, collapsed = false, variant = "default" }: any) => (
   <button 
@@ -308,7 +311,7 @@ export const TeacherDashboard = () => {
                   <Zap className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-lg font-black tracking-tight text-white italic">Reoul</h1>
+                  <h1 className="text-lg font-black tracking-tight text-white italic">Reowl</h1>
                   <p className="text-[9px] uppercase tracking-widest text-indigo-400 font-black -mt-1">Portal</p>
                 </div>
               </motion.div>
@@ -348,7 +351,10 @@ export const TeacherDashboard = () => {
           <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === "Dashboard"} onClick={() => setActiveTab("Dashboard")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={FileText} label="Syllabus Architect" active={activeTab === "Syllabus"} onClick={() => setActiveTab("Syllabus")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={Users} label="Classrooms" active={activeTab === "Classrooms"} onClick={() => setActiveTab("Classrooms")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={Command} label="Script Engine" active={activeTab === "Scripts"} onClick={() => setActiveTab("Scripts")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={ListChecks} label="Quiz Builder" active={activeTab === "Quiz"} onClick={() => setActiveTab("Quiz")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={Sparkles} label="Reo Notes" active={activeTab === "Notes"} onClick={() => setActiveTab("Notes")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={BookMarked} label="Resource Hub" active={activeTab === "Resources"} onClick={() => setActiveTab("Resources")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={BarChart3} label="Analytics" active={activeTab === "Analytics"} onClick={() => setActiveTab("Analytics")} collapsed={!isSidebarOpen} />
           
           <div className="pt-4 mt-4 border-t border-slate-800 space-y-1.5">
@@ -471,11 +477,14 @@ export const TeacherDashboard = () => {
             >
               {activeTab === "Dashboard" && <TeacherHome onNavigate={setActiveTab} />}
               {activeTab === "Classrooms" && <Classrooms />}
+              {activeTab === "Scripts" && <LessonScriptGenerator />}
               {activeTab === "Quiz" && <QuizBuilder />}
+              {activeTab === "Notes" && <SmartNotes />}
+              {activeTab === "Resources" && <ResourceManager />}
               {activeTab === "Analytics" && <TeacherAnalytics />}
               {activeTab === "Syllabus" && <SyllabusArchitect onNavigate={setActiveTab} />}
               {activeTab === "Settings" && <TeacherSettings />}
-              {activeTab !== "Dashboard" && activeTab !== "Classrooms" && activeTab !== "Syllabus" && activeTab !== "Settings" && activeTab !== "Analytics" && activeTab !== "Quiz" && (
+              {activeTab !== "Dashboard" && activeTab !== "Classrooms" && activeTab !== "Syllabus" && activeTab !== "Settings" && activeTab !== "Analytics" && activeTab !== "Quiz" && activeTab !== "Notes" && activeTab !== "Resources" && activeTab !== "Scripts" && (
                 <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4">
                   <div className="w-20 h-20 bg-indigo-100 rounded-3xl flex items-center justify-center text-indigo-600">
                     <Sparkles className="w-10 h-10" />

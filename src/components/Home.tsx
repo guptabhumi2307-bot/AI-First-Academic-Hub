@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   BookOpen, 
@@ -20,10 +20,12 @@ import {
   Brain,
   Loader2,
   Bell,
-  AlertCircle
+  AlertCircle,
+  Users,
+  Compass
 } from "lucide-react";
 import { collection, query, onSnapshot, orderBy, where, limit } from "firebase/firestore";
-import { db, isDemoMode } from "../lib/firebase";
+import { db, isDemoMode, handleFirestoreError } from "../lib/firebase";
 import { getGeminiModel } from "../lib/gemini";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -65,6 +67,61 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
   const [academicInsight, setAcademicInsight] = useState<string>("Reo is analyzing your performance...");
   const [recommendation, setRecommendation] = useState<{ text: string, link: string }>({ text: "Review your latest module", link: "Notes" });
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+  const [sharedResources, setSharedResources] = useState<any[]>([]);
+  const sharedUnsubscribes = useRef<(() => void)[]>([]);
+
+  useEffect(() => {
+    if (!user || profile?.role !== "student") return;
+
+    const classesQuery = query(
+      collection(db!, "classrooms"),
+      where("studentIds", "array-contains", user.uid)
+    );
+
+    const unsubscribeClasses = onSnapshot(classesQuery, (snapshot) => {
+      // Clear existing sub-listeners
+      sharedUnsubscribes.current.forEach(u => u());
+      sharedUnsubscribes.current = [];
+
+      const classIds = snapshot.docs.map(doc => doc.id);
+      
+      classIds.forEach(classId => {
+        const sharedQuery = query(
+          collection(db!, "classrooms", classId, "sharedResources"),
+          where("studentIds", "array-contains", user.uid),
+          orderBy("sharedAt", "desc"),
+          limit(3)
+        );
+        
+        const unsub = onSnapshot(sharedQuery, (resSnap) => {
+          const resData = resSnap.docs.map(d => ({
+            id: d.id,
+            ...d.data(),
+          }));
+          
+          setSharedResources(prev => {
+            const filtered = prev.filter(p => !resData.find(r => r.id === p.id));
+            return [...filtered, ...resData].sort((a, b) => {
+              const dateA = a.sharedAt?.toDate() || new Date(0);
+              const dateB = b.sharedAt?.toDate() || new Date(0);
+              return dateB.getTime() - dateA.getTime();
+            }).slice(0, 5);
+          });
+        }, (error) => {
+          handleFirestoreError(error, "list" as any, `classrooms/${classId}/sharedResources`);
+        });
+        sharedUnsubscribes.current.push(unsub);
+      });
+    }, (error) => {
+      console.error("Error fetching classrooms:", error);
+    });
+
+    return () => {
+      unsubscribeClasses();
+      sharedUnsubscribes.current.forEach(u => u());
+      sharedUnsubscribes.current = [];
+    };
+  }, [user, profile]);
 
   const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
 
@@ -231,6 +288,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
 
     const qTasks = query(
       collection(db!, "users", user.uid, "tasks"),
+      where("userId", "==", user.uid),
       orderBy("createdAt", "desc")
     );
 
@@ -241,11 +299,19 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
         priority: t.priority || 'Medium',
         completed: t.completed || false
       }))));
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, `users/${user.uid}/tasks`);
     });
 
-    const qQuizzes = query(collection(db!, "quizzes"), orderBy("publishedAt", "desc"));
+    const qQuizzes = query(
+      collection(db!, "quizzes"), 
+      where("visibility", "==", "public"),
+      orderBy("publishedAt", "desc")
+    );
     const unsubscribeQuizzes = onSnapshot(qQuizzes, (snapshot) => {
       setQuizzes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, "quizzes");
     });
 
     const qAttempts = query(
@@ -260,6 +326,8 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
       if (!snapshot.empty) {
         setLatestAttempt(snapshot.docs[0].data());
       }
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, "quiz_attempts");
     });
 
     return () => {
@@ -274,6 +342,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
 
     const qResources = query(
       collection(db!, "users", user.uid, "resources"),
+      where("userId", "==", user.uid),
       orderBy("createdAt", "desc"),
       limit(1)
     );
@@ -282,6 +351,8 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
       if (!snapshot.empty) {
         setLatestResource({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
       }
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, `users/${user.uid}/resources`);
     });
 
     return () => unsubscribeResources();
@@ -386,13 +457,13 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
                {formatISTDate()} <ArrowUpRight className="w-3 h-3" />
              </span>
           </div>
-          <h2 className="text-4xl font-black text-ink tracking-tight">How's it going, {user?.displayName?.split(' ')[0] || 'Scholar'}?</h2>
+          <h2 className="text-4xl font-black text-ink tracking-tight">How's it going, {(profile?.displayName || 'Scholar').split(' ')[0]}?</h2>
           <p className="text-ink-muted font-light mt-1">
             {burnoutMetrics?.status === 'optimal' 
               ? "You're making great progress! Your cognitive load is optimal." 
               : burnoutMetrics?.status === 'strained'
               ? "You're working hard! Remember to pace yourself for the long haul."
-              : "Burnout risk detected. Rio suggests a short break to reboot."}
+              : "Burnout risk detected. Reo suggests a short break to reboot."}
           </p>
         </motion.div>
         
@@ -610,7 +681,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
               <div className={`mt-8 flex items-center justify-between border-t ${colors.border}/50 pt-5`}>
                  <div className="flex items-center gap-1.5">
                     <div className={`w-2 h-2 rounded-full ${colors.pulse} animate-pulse`} />
-                    <p className={`text-[9px] font-black ${colors.p} uppercase tracking-tighter`}>Powered by Rio IA</p>
+                    <p className={`text-[9px] font-black ${colors.p} uppercase tracking-tighter`}>Powered by Reo AI</p>
                  </div>
                  <button className={`text-[10px] font-black text-white bg-gradient-to-r ${colors.btn} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all uppercase tracking-widest`}>
                     Learn More
@@ -621,7 +692,7 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
 
         {/* Right Column: AI Insights & Quick Chat */}
         <div className="space-y-8">
-           {/* Rio AI Insights Card */}
+           {/* Reo AI Insights Card */}
            <Card className="bg-gradient-to-br from-primary to-indigo-600 text-white border-none shadow-2xl relative overflow-hidden h-full flex flex-col">
               <div className="absolute top-0 right-0 -mr-12 -mt-12 w-48 h-48 bg-white/10 rounded-full blur-3xl animate-pulse" />
               <div className="relative z-10 flex-1">
@@ -654,10 +725,51 @@ export const Home = ({ onNavigate }: { onNavigate: (tab: string) => void }) => {
               </div>
               
               <button onClick={() => onNavigate("AI Chat")} className="w-full py-4 mt-12 bg-white text-primary rounded-2xl font-bold flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-indigo-900/40 relative z-10">
-                 <MessageSquare className="w-5 h-5" /> Chat with Rio
+                 <MessageSquare className="w-5 h-5" /> Chat with Reo
               </button>
            </Card>
         </div>
+
+        {/* Teacher Materials Section for Students */}
+        {profile?.role === "student" && sharedResources.length > 0 && (
+          <div className="lg:col-span-1 space-y-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-ink flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-500" />
+                Teacher Materials
+              </h3>
+              <button 
+                onClick={() => onNavigate("Resources")}
+                className="text-xs font-black uppercase tracking-widest text-primary hover:underline"
+              >
+                View Hub
+              </button>
+            </div>
+            <div className="space-y-4">
+              {sharedResources.map((res, i) => (
+                <motion.div
+                  key={res.id}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.1 }}
+                  onClick={() => onNavigate("Resources")}
+                  className="glass p-5 rounded-3xl hover:shadow-xl transition-all group cursor-pointer border-white/60"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-500 flex items-center justify-center">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm text-ink truncate group-hover:text-primary transition-colors">{res.title}</p>
+                      <p className="text-[10px] font-black uppercase text-ink-muted tracking-widest">Shared by Teacher</p>
+                    </div>
+                    <ArrowUpRight className="w-4 h-4 text-neutral-300 group-hover:text-primary transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -27,7 +27,7 @@ export const RoleSelector = () => {
             <Sparkles className="w-8 h-8" />
           </div>
           <h1 className="text-4xl font-black text-ink mb-2 tracking-tight">Choose Your Path</h1>
-          <p className="text-ink-muted font-light">Select your role to personalize your Reoul experience.</p>
+          <p className="text-ink-muted font-light">Select your role to personalize your Reowl experience.</p>
         </motion.div>
 
         {/* Student Role */}

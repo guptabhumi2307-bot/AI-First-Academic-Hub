@@ -1,4 +1,4 @@
-# Security Specification - Reoul Platform
+# Security Specification - Reowl Platform
 
 ## Data Invariants
 1. **User Isolation**: A user can only read and write their own data (profile, tasks, resources, chat history).
@@ -47,7 +47,7 @@
    - **Expectation**: PERMISSION_DENIED (must match `request.time`)
 
 10. **Identity Swapping**: Update a task and change its `ownerId` to someone else.
-    - **Expectation**: PERMISSION_DENIED (In Reoul, tasks are in subcollections, so the path keeps them isolated).
+    - **Expectation**: PERMISSION_DENIED (In Reowl, tasks are in subcollections, so the path keeps them isolated).
 
 11. **PII Leak**: An authenticated user tries to list all user profiles.
     - `path`: `/users` (list operation)

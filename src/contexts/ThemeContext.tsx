@@ -32,10 +32,10 @@ const presets = {
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mode, setMode] = useState<ThemeMode>(() => {
-    return (localStorage.getItem("reoul-theme-mode") as ThemeMode) || "system";
+    return (localStorage.getItem("reowl-theme-mode") as ThemeMode) || "system";
   });
   const [preset, setPreset] = useState<ColorPreset>(() => {
-    return (localStorage.getItem("reoul-theme-preset") as ColorPreset) || "indigo";
+    return (localStorage.getItem("reowl-theme-preset") as ColorPreset) || "indigo";
   });
 
   useEffect(() => {
@@ -51,7 +51,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     applyMode(mode);
-    localStorage.setItem("reoul-theme-mode", mode);
+    localStorage.setItem("reowl-theme-mode", mode);
 
     const listener = () => {
       if (mode === "system") applyMode("system");
@@ -65,7 +65,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const root = window.document.documentElement;
     const color = presets[preset].primary;
     root.style.setProperty("--primary-color", color);
-    localStorage.setItem("reoul-theme-preset", preset);
+    localStorage.setItem("reowl-theme-preset", preset);
   }, [preset]);
 
   return (

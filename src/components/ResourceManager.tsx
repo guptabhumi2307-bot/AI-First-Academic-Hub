@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, where } from "firebase/firestore";
+import React, { useState, useEffect, useRef } from "react";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, where, deleteDoc, doc } from "firebase/firestore";
 import { db, handleFirestoreError, isDemoMode } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { motion, AnimatePresence } from "motion/react";
@@ -31,7 +31,10 @@ import {
   BookOpen,
   PlayCircle,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  Share2,
+  Globe,
+  Users
 } from "lucide-react";
 
 interface Suggestion {
@@ -99,7 +102,54 @@ const Tag = ({ children, color = "primary" }: { children: React.ReactNode; color
 );
 
 export const ResourceManager = () => {
-  const { user } = useFirebase();
+  const { user, profile } = useFirebase();
+  const isTeacher = profile?.role === "teacher";
+  const [classrooms, setClassrooms] = useState<any[]>([]);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [isSharing, setIsSharing] = useState(false);
+  const [resourceToShare, setResourceToShare] = useState<Resource | null>(null);
+
+  useEffect(() => {
+    if (isTeacher && user) {
+      const q = query(
+        collection(db!, "classrooms"),
+        where("teacherId", "==", user.uid)
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setClassrooms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        handleFirestoreError(error, "list" as any, "classrooms");
+      });
+      return () => unsubscribe();
+    }
+  }, [isTeacher, user]);
+
+  const handleShare = async () => {
+    if (!selectedClassId || !resourceToShare || !user) return;
+    setIsSharing(true);
+    try {
+      const selectedClass = classrooms.find(c => c.id === selectedClassId);
+      await addDoc(collection(db!, "classrooms", selectedClassId, "sharedResources"), {
+        title: resourceToShare.title,
+        type: "FILE",
+        content: { ...resourceToShare },
+        teacherId: user.uid,
+        classId: selectedClassId,
+        studentIds: selectedClass?.studentIds || [],
+        sharedAt: serverTimestamp()
+      });
+      alert("Resource shared successfully with the class!");
+      setIsShareModalOpen(false);
+      setResourceToShare(null);
+    } catch (error) {
+      console.error("Sharing failed:", error);
+      handleFirestoreError(error, "write" as any, `/classrooms/${selectedClassId}/sharedResources`);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("Home");
   const [localResources, setLocalResources] = useState<Resource[]>([]);
@@ -109,6 +159,65 @@ export const ResourceManager = () => {
   const [resourceQuestion, setResourceQuestion] = useState("");
   const [resourceAnswer, setResourceAnswer] = useState("");
   const [isAsking, setIsAsking] = useState(false);
+  const [sharedResources, setSharedResources] = useState<Resource[]>([]);
+  const sharedUnsubscribes = useRef<(() => void)[]>([]);
+
+  useEffect(() => {
+    if (!user || profile?.role !== "student") return;
+
+    // 1. Find classrooms student is in
+    const classesQuery = query(
+      collection(db!, "classrooms"),
+      where("studentIds", "array-contains", user.uid)
+    );
+
+    const unsubscribeClasses = onSnapshot(classesQuery, (snapshot) => {
+      // Clear existing sub-listeners
+      sharedUnsubscribes.current.forEach(u => u());
+      sharedUnsubscribes.current = [];
+
+      const classIds = snapshot.docs.map(doc => doc.id);
+      
+      // For each class, subscribe to sharedResources
+      classIds.forEach(classId => {
+        const sharedQuery = query(
+          collection(db!, "classrooms", classId, "sharedResources"),
+          where("studentIds", "array-contains", user.uid),
+          orderBy("sharedAt", "desc")
+        );
+        
+        const unsub = onSnapshot(sharedQuery, (resSnap) => {
+          const resData = resSnap.docs.map(d => {
+            const data = d.data();
+            return {
+              id: d.id,
+              ...data.content,
+              time: data.sharedAt?.toDate() ? formatISTDateTime(data.sharedAt.toDate()) : "Just now",
+              isShared: true,
+              teacherId: data.teacherId
+            };
+          });
+          
+          setSharedResources(prev => {
+            // Merge and dedup
+            const filtered = prev.filter(p => !resData.find(r => r.id === p.id));
+            return [...filtered, ...resData].sort((a, b) => b.time.localeCompare(a.time));
+          });
+        }, (error) => {
+          handleFirestoreError(error, 'list', `/classrooms/${classId}/sharedResources`);
+        });
+        sharedUnsubscribes.current.push(unsub);
+      });
+    }, (error) => {
+      handleFirestoreError(error, 'list', "classrooms");
+    });
+
+    return () => {
+      unsubscribeClasses();
+      sharedUnsubscribes.current.forEach(u => u());
+      sharedUnsubscribes.current = [];
+    };
+  }, [user, profile]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -185,11 +294,12 @@ export const ResourceManager = () => {
           isBookmarked: false,
           insight
         }, ...prev]);
-        alert(`Rio analyzed your file! Summary: ${insight.summary}`);
+        alert(`Reo analyzed your file! Summary: ${insight.summary}`);
         return;
       }
 
       await addDoc(collection(db!, "users", user.uid, "resources"), {
+        userId: user.uid,
         title: file.name,
         type: type,
         subject: activeCategory === "Home" ? "General" : activeCategory,
@@ -198,7 +308,7 @@ export const ResourceManager = () => {
         createdAt: serverTimestamp(),
         insight
       });
-      alert(`Resource "${file.name}" indexed and analyzed by Rio!`);
+      alert(`Resource "${file.name}" indexed and analyzed by Reo!`);
     } catch (error) {
       console.error("Upload/Analysis Error:", error);
       handleFirestoreError(error, 'write', `/users/${user.uid}/resources`);
@@ -228,7 +338,7 @@ export const ResourceManager = () => {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
 
-      setResourceAnswer((response as any).text || "Rio is slightly confused by the depth of this document. Try rephrasing!");
+      setResourceAnswer((response as any).text || "Reo is slightly confused by the depth of this document. Try rephrasing!");
     } catch (error) {
       console.error("Resource Q&A failed:", error);
     } finally {
@@ -246,6 +356,7 @@ export const ResourceManager = () => {
 
     const q = query(
       collection(db!, "users", user.uid, "resources"),
+      where("userId", "==", user.uid),
       orderBy("createdAt", "desc")
     );
 
@@ -263,15 +374,35 @@ export const ResourceManager = () => {
         };
       }) as Resource[];
       setLocalResources(resourcesData);
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, `users/${user.uid}/resources`);
     });
 
     return () => unsubscribe();
   }, [user]);
 
-  const filteredResources = localResources.filter(r => {
+  const handleDeleteResource = async (resourceId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user || !window.confirm("Delete this resource forever?")) return;
+    
+    try {
+      if (isDemoMode) {
+        setLocalResources(prev => prev.filter(r => r.id !== resourceId));
+        return;
+      }
+      await deleteDoc(doc(db!, "users", user.uid, "resources", resourceId));
+    } catch (error) {
+      handleFirestoreError(error, "delete", `users/${user.uid}/resources/${resourceId}`);
+    }
+  };
+
+  const allResources = [...localResources, ...sharedResources];
+
+  const filteredResources = allResources.filter(r => {
     const matchesSearch = r.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           r.subject.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = activeCategory === "Home" || 
+                            (activeCategory === "Shared" && (r as any).isShared) ||
                             r.subject === activeCategory;
     return matchesSearch && matchesCategory;
   });
@@ -306,7 +437,7 @@ export const ResourceManager = () => {
                 <Upload className="w-16 h-16 text-primary" />
               </div>
               <h3 className="text-4xl font-black text-ink mb-4">Add to Library</h3>
-              <p className="text-xl text-ink-muted">Rio will index and summarize this resource automatically</p>
+              <p className="text-xl text-ink-muted">Reo will index and summarize this resource automatically</p>
             </div>
           </motion.div>
         )}
@@ -371,10 +502,10 @@ export const ResourceManager = () => {
 
       {/* Categories / Filters */}
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
-        {["Home", "Chemistry", "Biology", "Math", "Data Science", "History"].map((cat) => (
+        {["Home", profile?.role === "student" ? "Shared" : null, "Chemistry", "Biology", "Math", "Data Science", "History"].filter(Boolean).map((cat) => (
           <button 
             key={cat}
-            onClick={() => setActiveCategory(cat)}
+            onClick={() => setActiveCategory(cat!)}
             className={`px-5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
               activeCategory === cat 
                 ? "bg-primary text-white border-primary shadow-lg shadow-primary/20" 
@@ -386,7 +517,7 @@ export const ResourceManager = () => {
         ))}
       </div>
 
-      {/* Rio's Recommendations Section */}
+      {/* Reo's Recommendations Section */}
       <AnimatePresence mode="wait">
         {activeCategory !== "Home" && recommendations[activeCategory] && (
           <motion.div
@@ -404,7 +535,7 @@ export const ResourceManager = () => {
                     <Sparkles className="w-6 h-6" />
                  </div>
                  <div>
-                    <h3 className="text-xl font-bold text-ink">Rio's Subject Guide</h3>
+                    <h3 className="text-xl font-bold text-ink">Reo's Subject Guide</h3>
                     <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Curated Resources for {activeCategory}</p>
                  </div>
               </div>
@@ -477,7 +608,7 @@ export const ResourceManager = () => {
                        <MessageSquare className="w-4 h-4 text-primary" />
                     </div>
                     <p className="text-xs font-bold text-ink-muted">
-                       "Hey! I've picked these based on your current {activeCategory} documents. They should help fill any conceptual gaps we found." <span className="text-primary cursor-pointer hover:underline">— Rio</span>
+                       "Hey! I've picked these based on your current {activeCategory} documents. They should help fill any conceptual gaps we found." <span className="text-primary cursor-pointer hover:underline">— Reo</span>
                     </p>
                  </div>
               </div>
@@ -498,8 +629,13 @@ export const ResourceManager = () => {
           >
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform relative">
                   {r.type === "QUIZ" ? <FileCode className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
+                  {(r as any).isShared && (
+                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-indigo-500 rounded-full border-2 border-white flex items-center justify-center">
+                      <Globe className="w-3 h-3 text-white" />
+                    </div>
+                  )}
                 </div>
                 <div>
                   <h4 className="font-bold text-ink leading-tight group-hover:text-primary transition-colors">{r.title}</h4>
@@ -510,9 +646,19 @@ export const ResourceManager = () => {
                   </div>
                 </div>
               </div>
-              <button className="p-2 hover:bg-white/40 rounded-lg text-ink-muted transition-colors">
-                <MoreVertical className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                {!(r as any).isShared && (
+                  <button 
+                    onClick={(e) => handleDeleteResource(r.id, e)}
+                    className="p-2 hover:bg-rose-50 rounded-lg text-rose-400 opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+                <button className="p-2 hover:bg-white/40 rounded-lg text-ink-muted transition-colors">
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center justify-between mt-6">
@@ -521,10 +667,19 @@ export const ResourceManager = () => {
                 {r.isBookmarked && <Tag color="secondary"><Bookmark className="w-3 h-3" /> Bookmarked</Tag>}
               </div>
               <div className="flex items-center gap-2">
+                 {isTeacher && (
+                   <button 
+                    onClick={() => { setResourceToShare(r); setIsShareModalOpen(true); }}
+                    className="p-2 glass border-white/60 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all rounded-xl"
+                    title="Share with Class"
+                   >
+                      <Share2 className="w-4 h-4" />
+                   </button>
+                 )}
                  <button 
                   onClick={() => setSelectedResource(r)}
                   className="p-2 glass border-white/60 text-primary hover:bg-primary hover:text-white transition-all rounded-xl"
-                  title="Ask Rio about this document"
+                  title="Ask Reo about this document"
                  >
                     <MessageSquare className="w-4 h-4" />
                  </button>
@@ -580,7 +735,7 @@ export const ResourceManager = () => {
                         value={resourceQuestion}
                         onChange={(e) => setResourceQuestion(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && askAboutResource()}
-                        placeholder={`Ask Rio about ${selectedResource.title}...`}
+                        placeholder={`Ask Reo about ${selectedResource.title}...`}
                         className="w-full glass bg-white focus:bg-white rounded-2xl py-4 pl-5 pr-16 text-sm border-none shadow-sm focus:ring-2 ring-primary/20 transition-all font-medium"
                       />
                       <button 
@@ -601,11 +756,94 @@ export const ResourceManager = () => {
                   >
                     <div className="flex items-center gap-2 sticky top-0 bg-primary/5 backdrop-blur-sm py-1">
                        <CheckCircle2 className="w-4 h-4 text-primary" />
-                       <span className="text-[10px] font-black uppercase text-primary tracking-widest">Rio's Analysis</span>
+                       <span className="text-[10px] font-black uppercase text-primary tracking-widest">Reo's Analysis</span>
                     </div>
                     <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap">{resourceAnswer}</p>
                   </motion.div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Share Modal */}
+      <AnimatePresence>
+        {isShareModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { setIsShareModalOpen(false); setResourceToShare(null); }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg glass p-10 rounded-[3rem] border-white/60 shadow-2xl space-y-8"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-xl shadow-indigo-600/20">
+                  <Globe className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-ink">Publish to Class</h3>
+                  <p className="text-sm text-ink-muted">Share "{resourceToShare?.title}" with your students.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {classrooms.length > 0 ? (
+                  <div className="grid gap-3">
+                    {classrooms.map(cls => (
+                      <button 
+                        key={cls.id}
+                        onClick={() => setSelectedClassId(cls.id)}
+                        className={`w-full p-4 rounded-2xl border-2 text-left flex items-center justify-between transition-all ${
+                          selectedClassId === cls.id 
+                            ? "bg-indigo-50 border-indigo-600 shadow-sm" 
+                            : "bg-white/40 border-transparent hover:border-indigo-200"
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selectedClassId === cls.id ? "bg-indigo-600 text-white" : "bg-neutral-100 text-neutral-400"}`}>
+                            <Users className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-ink">{cls.name}</p>
+                            <p className="text-[10px] font-black text-ink-muted uppercase">{cls.code}</p>
+                          </div>
+                        </div>
+                        {selectedClassId === cls.id && <CheckCircle2 className="w-5 h-5 text-indigo-600" />}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center border-2 border-dashed border-neutral-100 rounded-3xl">
+                    <p className="text-sm font-medium text-ink-muted mb-4">You haven't created any classrooms yet.</p>
+                    <button className="text-xs font-black uppercase tracking-widest text-indigo-600 hover:underline">Create a Classroom</button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => { setIsShareModalOpen(false); setResourceToShare(null); }}
+                  className="flex-1 py-4 border border-neutral-100 text-ink font-bold rounded-2xl hover:bg-neutral-50 transition-all font-black text-xs uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={!selectedClassId || isSharing}
+                  onClick={handleShare}
+                  className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl shadow-indigo-600/20 disabled:opacity-50 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  {isSharing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                  {isSharing ? "Publishing..." : "Publish Resource"}
+                </button>
               </div>
             </motion.div>
           </div>

@@ -3,6 +3,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // -------------------------------------------------------------------------
+    // PILLAR 0: Global Safety Net (Default Deny)
+    // -------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
     // GLOBAL HELPERS
     // -------------------------------------------------------------------------
     function isSignedIn() {
@@ -22,7 +29,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 256;
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function isUserVerified() {
@@ -30,15 +37,11 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return (data.userId is string && data.userId.size() <= 256) &&
+      return (!('userId' in data) || (data.userId is string && data.userId.size() <= 128)) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 200)) &&
              (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
              (!('role' in data) || (data.role in ['student', 'teacher'])) &&
-             (!('institution' in data) || (data.institution is string && data.institution.size() <= 500)) &&
-             (!('department' in data) || (data.department is string && data.department.size() <= 500)) &&
-             (!('password' in data) || (data.password is string && data.password.size() <= 200)) &&
-             (!('subjects' in data) || (data.subjects is list && data.subjects.size() <= 20)) &&
              (!('stats' in data) || (data.stats is map)) &&
              (!('createdAt' in data) || (data.createdAt is timestamp)) &&
              (!('updatedAt' in data) || (data.updatedAt is timestamp));
@@ -48,34 +51,28 @@ service cloud.firestore {
     // USERS COLLECTION
     // -------------------------------------------------------------------------
     match /users/{userId} {
-      allow get: if isSignedIn(); // Allow anyone (like teachers) to get user profiles
-      allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      
-      allow create: if isSignedIn() && request.auth.uid == userId && (
-        incoming().userId == userId &&
-        isValidUser(incoming())
+      allow get: if isSignedIn();
+      // PILLAR 8: Secure List Queries - Separated for clarity and analyzer reliability
+      allow list: if isSignedIn() && (
+        resource.id == request.auth.uid || 
+        resource.data.get('userId', '') == request.auth.uid || 
+        resource.data.get('role', '') == 'student'
       );
-
+      
+      allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && (
-        // Allow updating profile fields including role, subjects, etc.
         incoming().diff(existing()).affectedKeys().hasAny(['displayName', 'photoURL', 'stats', 'updatedAt', 'role', 'userId', 'institution', 'department', 'password', 'subjects'])
       );
 
-      // -----------------------------------------------------------------------
-      // DISMISSED QUIZZES SUBCOLLECTION
-      // -----------------------------------------------------------------------
       match /dismissedQuizzes/{quizId} {
-        allow list: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.get('userId', userId) == userId;
         allow get: if isOwner(userId) && isValidId(quizId);
-        allow create, update: if isOwner(userId) && isValidId(quizId);
+        allow create, update: if isOwner(userId) && isValidId(quizId) && (incoming().get('userId', userId) == userId);
         allow delete: if isOwner(userId) && isValidId(quizId);
       }
 
-      // -----------------------------------------------------------------------
-      // TASKS SUBCOLLECTION
-      // -----------------------------------------------------------------------
       match /tasks/{taskId} {
-        allow list: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.get('userId', userId) == userId;
         allow get: if isOwner(userId) && isValidId(taskId);
         allow create: if isOwner(userId) && isValidId(taskId) && isValidTask(incoming());
         allow update: if isOwner(userId) && isValidId(taskId) && isValidTask(incoming()) && (
@@ -84,25 +81,15 @@ service cloud.firestore {
         allow delete: if isOwner(userId) && isValidId(taskId);
 
         function isValidTask(data) {
-          return (!('title' in data) || (data.title is string && data.title.size() <= 200)) &&
-                 (!('time' in data) || (data.time is string && data.time.size() <= 100)) &&
-                 (!('completed' in data) || (data.completed is bool)) &&
-                 (!('verified' in data) || data.verified is bool) &&
-                 (!('duration' in data) || (data.duration is string && data.duration.size() <= 50)) &&
-                 (!('subject' in data) || (data.subject is string && data.subject.size() <= 100)) &&
-                 (!('week' in data) || (data.week is string && data.week.size() <= 100)) &&
+          return data.get('userId', userId) == userId &&
+                 (!('title' in data) || (data.title is string && data.title.size() <= 200)) &&
                  (!('priority' in data) || (data.priority in ['High', 'Medium', 'Low'])) &&
-                 (!('deadline' in data) || (data.deadline is string && data.deadline.size() <= 100)) &&
-                 (!('createdAt' in data) || (data.createdAt is timestamp)) &&
-                 (!('updatedAt' in data) || (data.updatedAt is timestamp));
+                 (!('createdAt' in data) || (data.createdAt is timestamp));
         }
       }
 
-      // -----------------------------------------------------------------------
-      // RESOURCES SUBCOLLECTION
-      // -----------------------------------------------------------------------
       match /resources/{resourceId} {
-        allow list: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.get('userId', userId) == userId;
         allow get: if isOwner(userId) && isValidId(resourceId);
         allow create: if isOwner(userId) && isValidId(resourceId) && isValidResource(incoming());
         allow update: if isOwner(userId) && isValidId(resourceId) && isValidResource(incoming()) && (
@@ -111,36 +98,59 @@ service cloud.firestore {
         allow delete: if isOwner(userId) && isValidId(resourceId);
 
         function isValidResource(data) {
-          return data.title is string && data.title.size() <= 300 &&
-                 data.type in ['PDF', 'DOCX', 'QUIZ', 'FOLDER'] &&
-                 (!('subject' in data) || (data.subject is string && data.subject.size() <= 100)) &&
-                 (!('isBookmarked' in data) || data.isBookmarked is bool);
+          return data.get('userId', userId) == userId &&
+                 data.title is string && data.title.size() <= 300 &&
+                 data.type in ['PDF', 'DOCX', 'QUIZ', 'FOLDER'];
         }
       }
 
-      // -----------------------------------------------------------------------
-      // CHAT HISTORY SUBCOLLECTION
-      // -----------------------------------------------------------------------
       match /chatHistory/{sessionId} {
-        allow list: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.get('userId', userId) == userId;
         allow get: if isOwner(userId) && isValidId(sessionId);
-        allow create: if isOwner(userId) && isValidId(sessionId) && isValidChat(incoming()) && (
-          incoming().updatedAt == request.time
-        );
-        allow update: if isOwner(userId) && isValidId(sessionId) && isValidChat(incoming()) && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['messages', 'updatedAt', 'title']) &&
-          incoming().updatedAt == request.time
-        );
+        allow create: if isOwner(userId) && isValidId(sessionId) && isValidChat(incoming()) && (incoming().get('updatedAt', request.time) == request.time);
+        allow update: if isOwner(userId) && isValidId(sessionId) && isValidChat(incoming()) && (incoming().get('updatedAt', request.time) == request.time);
         allow delete: if isOwner(userId) && isValidId(sessionId);
 
         function isValidChat(data) {
-          return data.title is string && data.title.size() <= 200 &&
-                 data.messages is list && data.messages.size() <= 100 &&
-                 (data.messages.size() == 0 || (
-                   data.messages[0] is map && 
-                   data.messages[0].role in ['user', 'model'] && 
-                   data.messages[0].text is string
-                 ));
+          return data.get('userId', userId) == userId &&
+                 data.title is string && data.title.size() <= 200;
+        }
+      }
+
+      match /notifications/{notifId} {
+        allow list: if isOwner(userId) && resource.data.get('userId', userId) == userId;
+        allow get: if isOwner(userId) && isValidId(notifId);
+        allow create: if isSignedIn() && isValidId(notifId) && 
+                        incoming().get('userId', '') == userId &&
+                        isValidNotification(incoming());
+        allow update: if isOwner(userId) && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+        allow delete: if isOwner(userId);
+
+        function isValidNotification(data) {
+          return data.get('userId', userId) == userId &&
+                 data.get('title', '') is string && data.get('title', '').size() <= 200 &&
+                 data.get('message', '') is string && data.get('message', '').size() <= 1000 &&
+                 data.get('type', '') in ['CLASS_ADDED', 'RESOURCE_SHARED', 'QUIZ_ASSIGNED'] &&
+                 data.get('read', false) is bool &&
+                 data.get('createdAt', request.time) is timestamp;
+        }
+      }
+
+      match /lessonScripts/{scriptId} {
+        allow list: if isOwner(userId) && resource.data.get('userId', userId) == userId;
+        allow get: if isOwner(userId) && isValidId(scriptId);
+        allow create: if isOwner(userId) && isValidId(scriptId) && isValidLessonScript(incoming());
+        allow delete: if isOwner(userId) && isValidId(scriptId);
+
+        function isValidLessonScript(data) {
+          return data.get('userId', userId) == userId &&
+                 data.topic is string && data.topic.size() <= 200 &&
+                 data.content is map &&
+                 data.content.engagementHooks is list &&
+                 data.content.neuralCheckpoints is list &&
+                 data.content.analogies is map &&
+                 data.createdAt is timestamp;
         }
       }
     }
@@ -149,27 +159,70 @@ service cloud.firestore {
     // QUIZZES COLLECTION
     // -------------------------------------------------------------------------
     match /quizzes/{quizId} {
-      allow list: if isSignedIn();
+      allow list: if isSignedIn() && (
+        resource.data.teacherId == request.auth.uid || 
+        resource.data.visibility == 'public'
+      );
       allow get: if isSignedIn() && isValidId(quizId);
-      
-      // Only teachers can create/update their own quizzes
-      allow create: if isSignedIn() && isValidId(quizId) && 
-                      incoming().teacherId == request.auth.uid && 
-                      isValidQuiz(incoming());
-      
-      allow update: if isSignedIn() && isValidId(quizId) && 
-                      existing().teacherId == request.auth.uid && 
-                      incoming().teacherId == request.auth.uid &&
-                      isValidQuiz(incoming());
-      
-      allow delete: if isSignedIn() && isValidId(quizId) && 
+      allow create: if isUserVerified() && isValidId(quizId) && 
+                      isValidQuiz(incoming()) &&
+                      incoming().teacherId == request.auth.uid;
+      allow update: if isUserVerified() && isValidId(quizId) && 
+                      isValidQuiz(incoming()) &&
+                      existing().teacherId == request.auth.uid;
+      allow delete: if isUserVerified() && isValidId(quizId) && 
                       existing().teacherId == request.auth.uid;
 
       function isValidQuiz(data) {
-        return (data.title is string && data.title.size() <= 200) &&
-               (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
-               (data.questions is list && data.questions.size() <= 50) &&
-               (data.teacherId is string && data.teacherId.size() <= 128);
+        return data.teacherId == request.auth.uid &&
+               data.title is string && data.title.size() <= 200 &&
+               (!('subject' in data) || (data.subject is string && data.subject.size() <= 100)) &&
+               data.questions is list && data.questions.size() <= 100;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // CLASSROOMS COLLECTION
+    // -------------------------------------------------------------------------
+    match /classrooms/{classId} {
+      // PILLAR 8: Secure List Queries - Combined OR with existence checks
+      allow list: if isSignedIn() && (
+        resource.data.teacherId == request.auth.uid || 
+        request.auth.uid in resource.data.studentIds ||
+        resource.id == 'dummy'
+      );
+      allow get: if isSignedIn() && isValidId(classId);
+      allow create: if isUserVerified() && isValidId(classId) && 
+                      isValidClassroom(incoming()) &&
+                      incoming().teacherId == request.auth.uid;
+      allow update: if isUserVerified() && isValidId(classId) && (
+        existing().teacherId == request.auth.uid ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['studentIds']) && isSignedIn())
+      );
+      allow delete: if isUserVerified() && isValidId(classId) && 
+                      existing().teacherId == request.auth.uid;
+
+      function isValidClassroom(data) {
+        return data.teacherId == request.auth.uid &&
+               data.name is string && data.name.size() <= 200 &&
+               data.code is string && data.code.size() <= 50;
+      }
+
+      match /sharedResources/{resourceId} {
+        // PILLAR 8: No get() in list rules
+        allow list: if isSignedIn() && (
+          resource.data.teacherId == request.auth.uid ||
+          request.auth.uid in resource.data.studentIds
+        );
+        // Single document get can use get() on parent for verification
+        allow get: if isSignedIn() && isValidId(resourceId) && (
+          request.auth.uid == get(/databases/$(database)/documents/classrooms/$(classId)).data.teacherId ||
+          request.auth.uid in get(/databases/$(database)/documents/classrooms/$(classId)).data.studentIds
+        );
+        allow create: if isUserVerified() && isValidId(resourceId) && 
+                        request.auth.uid == get(/databases/$(database)/documents/classrooms/$(classId)).data.teacherId;
+        allow delete: if isUserVerified() && isValidId(resourceId) && 
+                         request.auth.uid == get(/databases/$(database)/documents/classrooms/$(classId)).data.teacherId;
       }
     }
 
@@ -178,37 +231,24 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     match /quiz_attempts/{attemptId} {
       allow list: if isSignedIn() && (
-        // Students can list their own attempts, or teachers can list for their quizzes
         resource.data.studentId == request.auth.uid || 
         resource.data.teacherId == request.auth.uid
       );
-
-      allow get: if isSignedIn() && isValidId(attemptId) && (
+      allow get: if isSignedIn() && (
         resource.data.studentId == request.auth.uid || 
         resource.data.teacherId == request.auth.uid
       );
-
-      allow create: if isSignedIn() && isValidId(attemptId) && (
-        incoming().studentId == request.auth.uid &&
-        // Securely verify that the teacherId provided matches the quiz creator
-        incoming().teacherId == get(/databases/$(database)/documents/quizzes/$(incoming().quizId)).data.teacherId &&
-        isValidAttempt(incoming())
-      );
-
+      allow create: if isUserVerified() && 
+                      isValidAttempt(incoming()) &&
+                      incoming().studentId == request.auth.uid;
+      
       function isValidAttempt(data) {
-        return (data.quizId is string && data.quizId.size() <= 128) &&
-               (data.studentId is string && data.studentId.size() <= 128) &&
-               (data.teacherId is string && data.teacherId.size() <= 128) &&
-               (data.score is number) &&
-               (data.totalQuestions is number);
+        return data.studentId == request.auth.uid &&
+               data.quizId is string && data.quizId.size() <= 128 &&
+               data.score is number &&
+               data.totalQuestions is number &&
+               data.completedAt == request.time;
       }
-    }
-
-    // -------------------------------------------------------------------------
-    // DEFAULT DENY
-    // -------------------------------------------------------------------------
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }

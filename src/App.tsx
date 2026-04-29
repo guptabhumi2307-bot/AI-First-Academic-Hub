@@ -36,7 +36,8 @@ import {
   Sun,
   Monitor,
   Command,
-  ArrowRight
+  ArrowRight,
+  Compass
 } from "lucide-react";
 import React, { useState, useEffect } from "react";
 import { AIChat } from "./components/AIChat";
@@ -49,12 +50,17 @@ import { Home as HomePage } from "./components/Home";
 import { KnowledgeGraph } from "./components/KnowledgeGraph";
 import { SyllabusArchitect } from "./components/SyllabusArchitect";
 import { FocusRooms } from "./components/FocusRooms";
+import { CareerExplorer } from "./components/CareerExplorer";
 import { StudentSettings } from "./components/StudentSettings";
 import { formatISTDate, formatISTTime } from "./lib/utils";
 import { RoleSelector } from "./components/RoleSelector";
 import { TeacherDashboard } from "./components/TeacherDashboard";
+import { UsernameSetup } from "./components/UsernameSetup";
 import { FirebaseProvider, useFirebase } from "./contexts/FirebaseContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+
+import { collection, query, where, onSnapshot, orderBy, limit, doc, updateDoc, writeBatch } from "firebase/firestore";
+import { db, handleFirestoreError } from "./lib/firebase";
 
 const SidebarItem = ({ icon: Icon, label, active = false, onClick, collapsed = false }: any) => (
   <button 
@@ -93,13 +99,62 @@ const AppContent = () => {
   const [searchQuery, setSearchQuery] = useState("");
 
   const { user, profile, loading, signIn, signOut } = useFirebase();
+  const [notifications, setNotifications] = useState<any[]>([]);
 
-  const notifications = [
-    { id: 1, title: "New Assignment", desc: "Weekly Quiz: Neural Synapses is now live", time: "5 min ago", type: "alert", icon: ClipboardList },
-    { id: 2, title: "Course Material", desc: "Professor uploaded 'Chapter 4: Reaction Mechanics' guide", time: "2 hours ago", type: "info", icon: FolderOpen },
-    { id: 3, title: "Achievement Unlocked", desc: "You've earned the 'Alpha Member' badge!", time: "1 day ago", type: "success", icon: Sparkles },
-    { id: 4, title: "Syllabus Updated", desc: "The schedule for Week 12 has been modified", time: "2 days ago", type: "info", icon: FileText }
-  ];
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(
+      collection(db!, "users", user.uid, "notifications"),
+      where("userId", "==", user.uid),
+      orderBy("createdAt", "desc"),
+      limit(20)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const notifs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        icon: doc.data().type === 'CLASS_ADDED' ? BookOpen : 
+              doc.data().type === 'RESOURCE_SHARED' ? FolderOpen : 
+              doc.data().type === 'QUIZ_ASSIGNED' ? ClipboardList : Bell,
+        time: doc.data().createdAt?.toDate() ? formatISTTime(doc.data().createdAt.toDate()) : "just now"
+      }));
+      setNotifications(notifs);
+    }, (error) => {
+      handleFirestoreError(error, 'list' as any, `users/${user.uid}/notifications`);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const markAllAsRead = async () => {
+    if (!user || notifications.length === 0) return;
+    try {
+      const batch = writeBatch(db!);
+      notifications.forEach(n => {
+        if (!n.read) {
+          const ref = doc(db!, "users", user.uid, "notifications", n.id);
+          batch.update(ref, { read: true });
+        }
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, 'write' as any, `users/${user.uid}/notifications`);
+    }
+  };
+
+  const markAsRead = async (id: string) => {
+    if (!user) return;
+    try {
+      const ref = doc(db!, "users", user.uid, "notifications", id);
+      await updateDoc(ref, { read: true });
+    } catch (error) {
+      handleFirestoreError(error, 'write' as any, `users/${user.uid}/notifications/${id}`);
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   const searchData = [
     { id: "note1", type: "Note", title: "Smart Notes: Biology", detail: "Lecture 8", tab: "Notes" },
@@ -170,6 +225,11 @@ const AppContent = () => {
   // Handle Role Selection
   if (!profile?.role) {
     return <RoleSelector />;
+  }
+
+  // Handle Manual Name Setup
+  if (!profile?.displayName) {
+    return <UsernameSetup />;
   }
 
   // Handle Teacher Dashboard
@@ -308,6 +368,7 @@ const AppContent = () => {
           <SidebarItem icon={MessageSquare} label="AI Chat" active={activeTab === "AI Chat"} onClick={() => setActiveTab("AI Chat")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={Plus} label="Quizzes" active={activeTab === "Quizzes"} onClick={() => setActiveTab("Quizzes")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={ClipboardList} label="Study Planner" active={activeTab === "Planner"} onClick={() => setActiveTab("Planner")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={Compass} label="Career Explorer" active={activeTab === "Career Explorer"} onClick={() => setActiveTab("Career Explorer")} collapsed={!isSidebarOpen} />
           <div className="pt-2 mt-2 border-t border-white/10" />
           <SidebarItem icon={Share2} label="Knowledge Graph" active={activeTab === "Graph"} onClick={() => setActiveTab("Graph")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={FileText} label="Syllabus Architect" active={activeTab === "Syllabus"} onClick={() => setActiveTab("Syllabus")} collapsed={!isSidebarOpen} />
@@ -328,7 +389,7 @@ const AppContent = () => {
             </div>
             {isSidebarOpen && (
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white leading-tight truncate">{profile?.displayName || user.displayName || "Scholar"}</p>
+                <p className="text-sm font-bold text-white leading-tight truncate">{profile?.displayName || "Scholar"}</p>
                 <p className="text-[10px] text-white/50 font-bold tracking-tight truncate">Alpha Member • lvl {profile?.stats?.level || 1}</p>
               </div>
             )}
@@ -381,7 +442,11 @@ const AppContent = () => {
                   }`}
                 >
                   <Bell className="w-5 h-5" />
-                  <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white shadow-sm" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-[7px] font-bold text-white">
+                      {unreadCount}
+                    </span>
+                  )}
                 </button>
 
                 <AnimatePresence>
@@ -400,28 +465,43 @@ const AppContent = () => {
                         </div>
                         <div className="max-h-[480px] overflow-y-auto custom-scrollbar">
                           {notifications.map(notif => (
-                            <div key={notif.id} className="p-6 border-b border-neutral-50 hover:bg-primary/5 transition-all flex gap-5 items-start group cursor-pointer relative overflow-hidden">
-                              <div className="absolute inset-y-0 left-0 w-1 bg-primary scale-y-0 group-hover:scale-y-100 transition-transform origin-top" />
+                            <div 
+                              key={notif.id} 
+                              onClick={() => markAsRead(notif.id)}
+                              className={`p-6 border-b border-neutral-50 hover:bg-primary/5 transition-all flex gap-5 items-start group cursor-pointer relative overflow-hidden ${!notif.read ? "bg-primary/[0.02]" : ""}`}
+                            >
+                              <div className={`absolute inset-y-0 left-0 w-1 bg-primary transition-transform origin-top ${!notif.read ? "scale-y-100" : "scale-y-0 group-hover:scale-y-100"}`} />
                               <div className={`w-12 h-12 rounded-[1.25rem] shrink-0 flex items-center justify-center transition-all ${
-                                notif.type === 'alert' ? 'bg-rose-50 text-rose-500 group-hover:bg-rose-500 group-hover:text-white' :
-                                notif.type === 'success' ? 'bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white' :
+                                notif.type === 'CLASS_ADDED' ? 'bg-rose-50 text-rose-500 group-hover:bg-rose-500 group-hover:text-white' :
+                                notif.type === 'QUIZ_ASSIGNED' ? 'bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white' :
                                 'bg-indigo-50 text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white'
                               }`}>
                                 <notif.icon className="w-6 h-6" />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between mb-1">
-                                  <p className="font-bold text-sm text-ink truncate group-hover:text-primary transition-colors">{notif.title}</p>
+                                  <p className={`font-bold text-sm text-ink truncate group-hover:text-primary transition-colors ${!notif.read ? "text-primary" : ""}`}>{notif.title}</p>
                                   <span className="text-[9px] font-black text-ink-muted lowercase opacity-60 tracking-tight">{notif.time}</span>
                                 </div>
-                                <p className="text-[11px] text-ink-muted font-medium line-clamp-2 leading-relaxed tracking-tight group-hover:text-ink transition-colors">{notif.desc}</p>
+                                <p className="text-[11px] text-ink-muted font-medium line-clamp-2 leading-relaxed tracking-tight group-hover:text-ink transition-colors">{notif.message || notif.desc}</p>
                               </div>
                             </div>
                           ))}
+                          {notifications.length === 0 && (
+                            <div className="p-20 text-center space-y-4">
+                              <Bell className="w-10 h-10 text-neutral-200 mx-auto" />
+                              <p className="text-sm font-bold text-ink-muted">All caught up!</p>
+                            </div>
+                          )}
                         </div>
-                        <button className="w-full p-6 text-[10px] font-black text-primary hover:bg-primary/5 transition-colors uppercase tracking-[0.3em] border-t border-neutral-50">
-                          Clear All Alerts
-                        </button>
+                        {notifications.length > 0 && (
+                          <button 
+                            onClick={markAllAsRead}
+                            className="w-full p-6 text-[10px] font-black text-primary hover:bg-primary/5 transition-colors uppercase tracking-[0.3em] border-t border-neutral-50"
+                          >
+                            Mark all as read
+                          </button>
+                        )}
                       </motion.div>
                     </>
                   )}
@@ -456,6 +536,7 @@ const AppContent = () => {
               {activeTab === "AI Chat" ? <AIChatPage /> : null}
               {activeTab === "Planner" || activeTab === "Study Planner" ? <StudyPlanner /> : null}
               {activeTab === "Quizzes" ? <Quizzes /> : null}
+              {activeTab === "Career Explorer" && <CareerExplorer />}
               {activeTab === "Graph" && <KnowledgeGraph />}
               {activeTab === "Syllabus" && <SyllabusArchitect onNavigate={setActiveTab} />}
               {activeTab === "Focus Rooms" && <FocusRooms />}
@@ -466,6 +547,7 @@ const AppContent = () => {
                activeTab !== "Planner" && 
                activeTab !== "Study Planner" && 
                activeTab !== "Quizzes" && 
+               activeTab !== "Career Explorer" &&
                activeTab !== "Notes" && 
                activeTab !== "Smart Notes" && (
                 <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4">
@@ -482,7 +564,7 @@ const AppContent = () => {
         </div>
       </main>
 
-      {/* Rio Drawer */}
+      {/* Reo Drawer */}
       <AIChat isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
 
       {/* Floating Chat Trigger */}

@@ -13,7 +13,7 @@ import {
   User as UserIcon
 } from "lucide-react";
 import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
-import { db, isDemoMode } from "../lib/firebase";
+import { db, isDemoMode, handleFirestoreError } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
 
 interface QuizAttempt {
@@ -61,7 +61,7 @@ export const TeacherAnalytics = () => {
       setAttempts(fetched);
       setIsLoading(false);
     }, (error) => {
-      console.error("Fetch attempts failed:", error);
+      handleFirestoreError(error, "list" as any, "quiz_attempts");
       setIsLoading(false);
     });
 

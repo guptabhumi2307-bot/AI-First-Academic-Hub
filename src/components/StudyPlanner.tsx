@@ -4,8 +4,8 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, orderBy } from "firebase/firestore";
-import { db, isDemoMode } from "../lib/firebase";
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, orderBy } from "firebase/firestore";
+import { db, isDemoMode, handleFirestoreError } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -65,6 +65,7 @@ export const StudyPlanner = () => {
 
     const q = query(
       collection(db!, "users", user.uid, "tasks"),
+      where("userId", "==", user.uid),
       orderBy("createdAt", "desc")
     );
 
@@ -75,6 +76,9 @@ export const StudyPlanner = () => {
       }) as any);
       setLocalTasks(tasksData);
       setBurnoutMetrics(calculateBurnoutRisk(tasksData as any[]));
+      setIsInitialLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, `users/${user.uid}/tasks`);
       setIsInitialLoading(false);
     });
 
@@ -117,7 +121,7 @@ export const StudyPlanner = () => {
       }
     } catch (err) {
       console.error("Verification failed:", err);
-      setVError("Rio had trouble auditing. Please try again.");
+      setVError("Reo had trouble auditing. Please try again.");
     } finally {
       setIsVerifying(false);
     }
@@ -189,6 +193,7 @@ export const StudyPlanner = () => {
     setIsAdding(true);
     try {
       await addDoc(collection(db!, "users", user.uid, "tasks"), {
+        userId: user.uid,
         title: "New Study Session",
         time: "TBD",
         duration: "1h 00m",
@@ -447,7 +452,7 @@ export const StudyPlanner = () => {
                 <div className="bg-primary/5 rounded-[2rem] p-6 border border-primary/10">
                   <div className="flex items-center gap-3 mb-4">
                     <Brain className="w-5 h-5 text-primary" />
-                    <span className="text-sm font-bold text-ink">Rio's Mastery Challenge</span>
+                    <span className="text-sm font-bold text-ink">Reo's Mastery Challenge</span>
                   </div>
                   <p className="text-sm text-ink-muted leading-relaxed italic">
                     To maintain your integrity streak, please provide a **one-sentence synthesis** of the most important concept you learned or applied during this task.

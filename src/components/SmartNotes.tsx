@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { isDemoMode } from "../lib/firebase";
 import { getGeminiModel } from "../lib/gemini";
@@ -26,12 +26,19 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  ArrowRight,
   Loader2,
   Mic,
   MicOff,
   CircleStop,
-  Clock
+  Clock,
+  Globe,
+  Users
 } from "lucide-react";
+import { useFirebase } from "../contexts/FirebaseContext";
+import { collection, addDoc, serverTimestamp, query, where, onSnapshot } from "firebase/firestore";
+import { db, handleFirestoreError } from "../lib/firebase";
+import { Badge } from "./ui/Badge";
 
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
   <div className={`glass rounded-[2rem] p-8 border-white/60 shadow-xl ${className}`}>
@@ -40,7 +47,54 @@ const Card = ({ children, className = "" }: { children: React.ReactNode; classNa
 );
 
 export const SmartNotes = () => {
+  const { user, profile } = useFirebase();
+  const isTeacher = profile?.role === "teacher";
+  const [classrooms, setClassrooms] = useState<any[]>([]);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [isSharing, setIsSharing] = useState(false);
+
+  useEffect(() => {
+    if (isTeacher && user) {
+      const q = query(
+        collection(db!, "classrooms"),
+        where("teacherId", "==", user.uid)
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setClassrooms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        handleFirestoreError(error, "list" as any, "classrooms");
+      });
+      return () => unsubscribe();
+    }
+  }, [isTeacher, user]);
+
+  const handleShare = async () => {
+    if (!selectedClassId || !generatedNotes || !user) return;
+    setIsSharing(true);
+    try {
+      const selectedClass = classrooms.find(c => c.id === selectedClassId);
+      await addDoc(collection(db!, "classrooms", selectedClassId, "sharedResources"), {
+        title: generatedNotes.title,
+        type: "NOTE",
+        content: generatedNotes,
+        teacherId: user.uid,
+        classId: selectedClassId,
+        studentIds: selectedClass?.studentIds || [],
+        sharedAt: serverTimestamp()
+      });
+      alert("Notes shared successfully with the class!");
+      setIsShareModalOpen(false);
+    } catch (error) {
+      console.error("Sharing failed:", error);
+      handleFirestoreError(error, "write" as any, `/classrooms/${selectedClassId}/sharedResources`);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   const [activeStyle, setActiveStyle] = useState("Detailed");
+  const [learningTone, setLearningTone] = useState("Academic"); // Academic, Simplified, Storytelling
   const [isFlipped, setIsFlipped] = useState(false);
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -49,6 +103,18 @@ export const SmartNotes = () => {
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
   const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+
+  const getVCardColors = (suffix: string) => {
+    const colors: Record<string, any> = {
+      blue: { bg: "bg-blue-50", border: "bg-blue-100", text: "text-blue-900", subtext: "text-blue-700/80", icon: "bg-blue-600", innerBorder: "border-blue-200/50", innerBg: "bg-white/60", innerText: "text-blue-800" },
+      purple: { bg: "bg-purple-50", border: "bg-purple-100", text: "text-purple-900", subtext: "text-purple-700/80", icon: "bg-purple-600", innerBorder: "border-purple-200/50", innerBg: "bg-white/60", innerText: "text-purple-800" },
+      emerald: { bg: "bg-emerald-50", border: "bg-emerald-100", text: "text-emerald-900", subtext: "text-emerald-700/80", icon: "bg-emerald-600", innerBorder: "border-emerald-200/50", innerBg: "bg-white/60", innerText: "text-emerald-800" },
+      indigo: { bg: "bg-indigo-50", border: "bg-indigo-100", text: "text-indigo-900", subtext: "text-indigo-700/80", icon: "bg-indigo-600", innerBorder: "border-indigo-200/50", innerBg: "bg-white/60", innerText: "text-indigo-800" },
+      rose: { bg: "bg-rose-50", border: "bg-rose-100", text: "text-rose-900", subtext: "text-rose-700/80", icon: "bg-rose-600", innerBorder: "border-rose-200/50", innerBg: "bg-white/60", innerText: "text-rose-800" },
+      amber: { bg: "bg-amber-50", border: "bg-amber-100", text: "text-amber-900", subtext: "text-amber-700/80", icon: "bg-amber-600", innerBorder: "border-amber-200/50", innerBg: "bg-white/60", innerText: "text-amber-800" },
+    };
+    return colors[suffix] || colors.indigo;
+  };
 
   const generateFlashcards = async () => {
     if (!generatedNotes || isGeneratingFlashcards) return;
@@ -104,13 +170,40 @@ export const SmartNotes = () => {
       setIsFlipped(false);
     } catch (error) {
       console.error("Flashcard generation failed:", error);
-      alert("Rio couldn't generate flashcards. Please ensure your notes are generated first.");
+      alert("Reo couldn't generate flashcards. Please ensure your notes are generated first.");
     } finally {
       setIsGeneratingFlashcards(false);
     }
   };
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [audioBase64, setAudioBase64] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; base64: string; type: string } | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.readAsDataURL(file);
+      });
+      const base64 = await base64Promise;
+      setUploadedFile({
+        name: file.name,
+        base64,
+        type: file.type || "application/pdf"
+      });
+    } catch (error) {
+      console.error("File read failed:", error);
+      alert("Failed to read file.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const startRecording = async () => {
     try {
@@ -147,7 +240,7 @@ export const SmartNotes = () => {
   };
 
   const handleGenerate = async () => {
-    if ((!input.trim() && !audioBase64) || isGenerating) return;
+    if ((!input.trim() && !audioBase64 && !uploadedFile) || isGenerating) return;
 
     setIsGenerating(true);
     try {
@@ -158,7 +251,7 @@ export const SmartNotes = () => {
         // Simulation for Demo Mode
         await new Promise(resolve => setTimeout(resolve, 2000));
         const demoNotes = {
-          title: input ? `Analysis: ${input.split(' ').slice(0, 5).join(' ')}...` : "Simulation: Advanced Pedagogy",
+          title: input ? `Analysis: ${input.split(' ').slice(0, 5).join(' ')}...` : uploadedFile ? `Analysis: ${uploadedFile.name}` : "Simulation: Advanced Pedagogy",
           definition: input ? `An AI-synthesized overview based on your input: "${input.substring(0, 50)}..."` : "A synthesized overview of educational strategies and instructional design.",
           sections: [
             { heading: "Foundational Concepts", content: "Active learning is a method of learning in which students are actively or experientially involved in the learning process and where there are different levels of active learning, depending on student involvement." },
@@ -173,8 +266,24 @@ export const SmartNotes = () => {
           actionItems: ["Review specific sections in text", "Cross-reference with lecture audio"],
           deadlines: ["Weekly Quiz: Friday", "Project Draft: Two weeks"],
           terms: [
-            { term: "Heuristic", definition: "A mental shortcut that allows people to solve problems quickly." },
-            { term: "Cognitive Load", definition: "The amount of information that working memory can hold at once." }
+            { term: "Heuristic", definition: "A mental shortcut that allows people to solve problems quickly.", importance: "Essential" },
+            { term: "Cognitive Load", definition: "The amount of information that working memory can hold at once.", importance: "Core Concept" }
+          ],
+          visualCards: [
+            { title: "The Knowledge Funnel", concept: "Filtering noise into structured wisdom.", visualPrompt: "A futuristic funnel capturing glowing particles and emitting solid geometric blocks.", colorSuffix: "indigo" },
+            { title: "Metacognition Mirror", concept: "Reflecting on thought patterns for optimization.", visualPrompt: "A crystal mirror reflecting a brain composed of circuit networks.", colorSuffix: "purple" }
+          ],
+          logicModels: [
+            { 
+              type: 'cycle', 
+              title: 'The Feedback-Learning Loop', 
+              steps: [
+                { label: 'Ingestion', description: 'Consuming raw data' },
+                { label: 'Processing', description: 'Linking to existing nodes' },
+                { label: 'Evaluation', description: 'Testing mental models' },
+                { label: 'Refinement', description: 'Correcting misconceptions' }
+              ] 
+            }
           ]
         };
         setGeneratedNotes(demoNotes);
@@ -190,23 +299,29 @@ export const SmartNotes = () => {
         { text: `You are an elite academic synthesizer. Analyze the provided study material and generate a high-rigor structured study guide.
         
         Style: ${activeStyle === "Detailed" ? "Comprehensive, prioritizing deep mechanics and 'Why' explanations" : "Concise, prioritizing high-impact 'What' facts and speed-reading structures"}.
+        Tone: ${learningTone}. (If 'Simplified', use analogies and plain language. If 'Academic', use domain-specific jargon and formal structure. If 'Storytelling', frame concepts as a narrative journey).
         
         Material to analyze:
         ${input ? `TEXT INPUT: "${input}"\n` : ""}
         ${audioBase64 ? "AUDIO INPUT: (Attached audio transcript/recording)\n" : ""}
+        ${uploadedFile ? `DOCUMENT INPUT: "${uploadedFile.name}"\n` : ""}
 
         Required Output Structure:
         1. title: A professional academic title.
         2. definition: A 1-2 sentence core definition of the subject.
-        3. sections: An array of { heading, content } objects providing structured, logical breakdowns of the content.
+        3. sections: An array of { heading, content, deepDive? } objects providing structured, logical breakdowns. 'deepDive' is an optional extra detail for complex concepts.
         4. keyPoints: An array of high-impact factual takeaways.
         5. formula: The most important symbolic representation or "Golden Rule".
         6. actionItems: An array of tasks (e.g., "Practice problem set 4").
         7. deadlines: Any mentioned dates or timeframes.
-        8. terms: Array of { term, definition } for key vocabulary.
+        8. terms: Array of { term, definition, importance } for key vocabulary. 'importance' is a string describing why this term matters (e.g., "Crucial for Exam", "Basic Foundation").
+        9. visualCards: Array of { title, concept, visualPrompt, colorSuffix } representing core mental models or metaphors. 'colorSuffix' is a tailwind color name (e.g., 'blue', 'purple', 'emerald').
+        10. logicModels: Array of { type, title, steps } where type is 'cycle' (repeating), 'flow' (linear), or 'hierarchy' (layered). 'steps' is an array of strings or { label, description }.
+        
+        CRITICAL: If the topic involves any process, cause-effect chain, transition, or biological/technical cycle, you MUST generate at least one 'logicModels' entry. Look for verbs like "leads to", "results in", "transforms into", or "cycles".
 
         Instructions for Maximum Rigor:
-        - Identify specific academic branches and use domain-specific terminology.
+        - Identify specific academic branches and use domain-specific terminology correctly.
         - Explain relationships between concepts in the sections content.
         - Ensure action items are practical and derived from the context.` }
       ];
@@ -216,6 +331,15 @@ export const SmartNotes = () => {
           inlineData: {
             mimeType: "audio/wav",
             data: audioBase64
+          }
+        });
+      }
+
+      if (uploadedFile) {
+        parts.push({
+          inlineData: {
+            mimeType: uploadedFile.type,
+            data: uploadedFile.base64
           }
         });
       }
@@ -237,7 +361,7 @@ export const SmartNotes = () => {
       setGeneratedNotes(data);
     } catch (error) {
       console.error("Notes Generation failed:", error);
-      alert("Rio had an issue synthesizing your notes. Please check your material and try again.");
+      alert("Reo had an issue synthesizing your notes. Please check your material and try again.");
     } finally {
       setIsGenerating(false);
     }
@@ -265,6 +389,18 @@ export const SmartNotes = () => {
                 <FileText className="w-5 h-5 text-primary" /> Input Material
               </h3>
               <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input 
+                    type="file" 
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    accept=".pdf,.docx,.doc,.txt,image/*"
+                  />
+                  <button className="flex items-center gap-2 px-4 py-2 bg-white border border-neutral-100 text-ink rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-neutral-50 transition-all group">
+                    {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4 text-primary" />}
+                    Upload File
+                  </button>
+                </div>
                 {isRecording ? (
                   <motion.button 
                     animate={{ 
@@ -291,27 +427,47 @@ export const SmartNotes = () => {
             </div>
 
             <div className="space-y-4 mb-6">
-              {audioBase64 && !isRecording && (
-                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center justify-between mb-4 animate-in fade-in slide-in-from-top-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-500 text-white rounded-lg flex items-center justify-center">
-                      <Mic className="w-5 h-5" />
+              {(audioBase64 || uploadedFile) && !isRecording && (
+                <div className="flex flex-col gap-2 mb-4">
+                  {audioBase64 && (
+                    <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-500 text-white rounded-lg flex items-center justify-center">
+                          <Mic className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-emerald-900">Audio Lecture Captured</p>
+                          <p className="text-[10px] text-emerald-600 font-medium">Ready for AI processing</p>
+                        </div>
+                      </div>
+                      <button onClick={() => setAudioBase64(null)} className="text-emerald-400 hover:text-emerald-600">
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
                     </div>
-                    <div>
-                      <p className="text-xs font-bold text-emerald-900">Audio Lecture Captured</p>
-                      <p className="text-[10px] text-emerald-600 font-medium">Ready for AI processing</p>
+                  )}
+                  {uploadedFile && (
+                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-500 text-white rounded-lg flex items-center justify-center">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-blue-900">{uploadedFile.name}</p>
+                          <p className="text-[10px] text-blue-600 font-medium">Document attached</p>
+                        </div>
+                      </div>
+                      <button onClick={() => setUploadedFile(null)} className="text-blue-400 hover:text-blue-600">
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
                     </div>
-                  </div>
-                  <button onClick={() => setAudioBase64(null)} className="text-emerald-400 hover:text-emerald-600">
-                    <RotateCcw className="w-4 h-4" />
-                  </button>
+                  )}
                 </div>
               )}
               
               <textarea 
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Paste text OR Record a lecture above... Rio will merge both contexts into your notes."
+                placeholder="Paste text OR Record a lecture above... Reo will merge both contexts into your notes."
                 className="w-full h-48 bg-white/20 border border-white/60 rounded-[1.5rem] p-6 text-sm text-ink outline-none focus:ring-4 ring-primary/10 transition-all resize-none font-light leading-relaxed"
               />
             </div>
@@ -319,16 +475,16 @@ export const SmartNotes = () => {
             <div className="flex flex-wrap gap-3">
               <button 
                 onClick={handleGenerate}
-                disabled={isGenerating || (!input.trim() && !audioBase64)}
+                disabled={isGenerating || (!input.trim() && !audioBase64 && !uploadedFile)}
                 className={`flex-1 min-w-[140px] px-6 py-3.5 rounded-2xl font-bold text-sm shadow-xl flex items-center justify-center gap-2 transition-all ${
                   isGenerating ? "bg-neutral-100 text-neutral-400" : "bg-primary text-white shadow-primary/30 hover:scale-105 active:scale-95"
                 }`}
               >
                 {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {isGenerating ? "Rio is Synthesizing..." : "Process with Rio AI"}
+                {isGenerating ? "Reo is Synthesizing..." : "Process with Reo AI"}
               </button>
               <button 
-                 onClick={() => { setInput(""); setGeneratedNotes(null); setAudioBase64(null); }}
+                 onClick={() => { setInput(""); setGeneratedNotes(null); setAudioBase64(null); setUploadedFile(null); }}
                  className="px-6 py-3.5 border border-white/60 text-ink font-bold rounded-2xl hover:bg-white/40 transition-all font-black text-xs uppercase tracking-widest"
               >
                 Reset
@@ -343,7 +499,7 @@ export const SmartNotes = () => {
             </h3>
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {(generatedNotes?.terms || [{ term: "Analysis Pending", definition: "Rio is waiting for input..." }]).map((item: any, i: number) => (
+                {(generatedNotes?.terms || [{ term: "Analysis Pending", definition: "Reo is waiting for input..." }]).map((item: any, i: number) => (
                   <motion.div 
                     key={i} 
                     whileHover={{ scale: 1.05 }}
@@ -379,7 +535,18 @@ export const SmartNotes = () => {
               <div className="flex items-center gap-2">
                 <button className="p-2.5 rounded-xl hover:bg-primary/10 text-primary transition-colors"><Copy className="w-5 h-5" /></button>
                 <button className="p-2.5 rounded-xl hover:bg-primary/10 text-primary transition-colors"><Download className="w-5 h-5" /></button>
-                <button className="p-2.5 rounded-xl hover:bg-primary/10 text-primary transition-colors"><Share2 className="w-5 h-5" /></button>
+                {isTeacher && (
+                  <button 
+                    onClick={() => setIsShareModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:scale-105 transition-all"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Share with Class
+                  </button>
+                )}
+                {!isTeacher && (
+                  <button className="p-2.5 rounded-xl hover:bg-primary/10 text-primary transition-colors"><Share2 className="w-5 h-5" /></button>
+                )}
               </div>
             </div>
 
@@ -404,63 +571,211 @@ export const SmartNotes = () => {
                       <div className="w-20 h-20 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
                       <Sparkles className="w-8 h-8 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
                     </div>
-                    <p className="text-sm font-bold text-primary animate-bounce">Rio is synthesizing knowledge...</p>
+                    <p className="text-sm font-bold text-primary animate-bounce">Reo is synthesizing knowledge...</p>
                   </motion.div>
                 ) : (
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="space-y-4"
+                    className="grid grid-cols-1 lg:grid-cols-12 gap-8"
                   >
-                    <h4 className="text-2xl font-black text-ink tracking-tight italic">{generatedNotes.title}</h4>
-                    <div className="space-y-8">
-                      <div className="flex gap-4 p-5 bg-primary/5 rounded-[1.5rem] border border-primary/10">
-                        <Sparkles className="w-6 h-6 text-primary shrink-0" />
-                        <p className="text-sm text-ink leading-relaxed">
-                          <strong className="text-primary tracking-tight font-black uppercase text-[10px] block mb-1">Executive Summary</strong> 
-                          {generatedNotes.definition}
-                        </p>
+                    {/* Sticky Sidebar Navigation */}
+                    <div className="lg:col-span-3">
+                      <div className="sticky top-8 space-y-4">
+                        <p className="text-[10px] font-black uppercase text-ink-muted tracking-[0.2em] px-2 mb-4">Note Contents</p>
+                        <nav className="space-y-1">
+                          {[
+                            { id: 'summary', label: 'Executive Summary', icon: Sparkles },
+                            { id: 'concepts', label: 'Core Sections', icon: Layers },
+                            { id: 'visuals', label: 'Mental Models', icon: Zap },
+                            { id: 'diagrams', label: 'Logic Flows', icon: Share2 },
+                            { id: 'glossary', label: 'Glossary', icon: BookOpen },
+                            { id: 'actions', label: 'Study Roadmap', icon: CheckCircle2 }
+                          ].map(item => (
+                            <a 
+                              key={item.id}
+                              href={`#${item.id}`}
+                              className="flex items-center gap-3 px-4 py-2 rounded-xl text-[11px] font-bold text-ink-muted hover:bg-primary/5 hover:text-primary transition-all group"
+                            >
+                              <item.icon className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                              {item.label}
+                            </a>
+                          ))}
+                        </nav>
+                      </div>
+                    </div>
+
+                    {/* Main Content Area */}
+                    <div className="lg:col-span-9 space-y-12">
+                      <div id="summary">
+                        <h4 className="text-3xl font-black text-ink tracking-tight italic mb-6">{generatedNotes.title}</h4>
+                        <div className="flex gap-4 p-6 bg-gradient-to-br from-indigo-50 to-white rounded-[2rem] border border-indigo-100 shadow-sm">
+                          <Sparkles className="w-6 h-6 text-primary shrink-0" />
+                          <p className="text-sm text-ink leading-relaxed">
+                            <strong className="text-primary tracking-tight font-black uppercase text-[10px] block mb-2">Subject Foundation</strong> 
+                            {generatedNotes.definition}
+                          </p>
+                        </div>
                       </div>
 
                       {/* Structured Sections */}
-                      {generatedNotes.sections?.map((section: any, i: number) => (
-                        <div key={i} className="space-y-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-[1px] bg-neutral-200" />
-                            <h5 className="font-black text-[11px] uppercase tracking-[0.2em] text-primary">{section.heading}</h5>
-                            <div className="flex-1 h-[1px] bg-neutral-100" />
+                      <div id="concepts" className="space-y-8">
+                        {generatedNotes.sections?.map((section: any, i: number) => (
+                          <div key={i} className="space-y-4 bg-white/40 p-6 rounded-[2rem] border border-neutral-100">
+                            <div className="flex items-center gap-3">
+                              <div className="w-2 h-2 rounded-full bg-primary" />
+                              <h5 className="font-black text-[12px] uppercase tracking-[0.15em] text-ink">{section.heading}</h5>
+                            </div>
+                            <div className="pl-5 space-y-4">
+                              <p className="text-sm text-ink-muted leading-relaxed font-light">
+                                {section.content}
+                              </p>
+                              {section.deepDive && (
+                                <div className="p-4 bg-amber-50/50 border-l-4 border-amber-400 rounded-r-2xl">
+                                  <p className="text-[10px] font-black uppercase text-amber-600 mb-1">Deep Dive Focus</p>
+                                  <p className="text-[11px] text-amber-900 leading-relaxed italic">{section.deepDive}</p>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <p className="text-sm text-ink-muted leading-relaxed font-light pl-4 border-l border-neutral-100">
-                            {section.content}
-                          </p>
+                        ))}
+                      </div>
+
+                      {/* Visual Cards Section */}
+                      {generatedNotes.visualCards && generatedNotes.visualCards.length > 0 && (
+                        <div id="visuals" className="space-y-6 pt-4">
+                           <div className="flex items-center gap-3">
+                              <Zap className="w-5 h-5 text-amber-500" />
+                              <h4 className="text-[11px] font-black text-ink uppercase tracking-[0.2em]">Mental Models & Visuals</h4>
+                           </div>
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {generatedNotes.visualCards.map((vcard: any, idx: number) => {
+                                const cfg = getVCardColors(vcard.colorSuffix);
+                                return (
+                                  <motion.div 
+                                    key={idx}
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: idx * 0.1 }}
+                                    className={`p-6 rounded-3xl border-2 shadow-sm transition-all hover:shadow-md cursor-help group relative overflow-hidden ${cfg.bg} ${cfg.border}`}
+                                  >
+                                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-30 transition-opacity">
+                                      <Sparkles className="w-8 h-8" />
+                                    </div>
+                                    <h5 className={`font-black text-[13px] tracking-tight mb-2 ${cfg.text}`}>{vcard.title}</h5>
+                                    <p className={`text-[11px] leading-relaxed mb-4 ${cfg.subtext}`}>{vcard.concept}</p>
+                                    
+                                    <div className={`p-3 rounded-xl border flex items-center gap-3 ${cfg.innerBg} ${cfg.innerBorder}`}>
+                                       <div className={`w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 ${cfg.icon}`}>
+                                          <Zap className="w-4 h-4" />
+                                       </div>
+                                       <p className={`text-[9px] font-medium leading-tight italic ${cfg.innerText}`}>
+                                          "{vcard.visualPrompt}"
+                                       </p>
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                           </div>
+                        </div>
+                      )}
+
+                      {/* Logic Models Section */}
+                      {generatedNotes.logicModels && generatedNotes.logicModels.map((model: any, mIdx: number) => (
+                        <div key={mIdx} id="diagrams" className="space-y-6 pt-10 border-t border-neutral-100">
+                           <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                 <Share2 className="w-5 h-5 text-primary" />
+                                 <h4 className="text-[11px] font-black text-ink uppercase tracking-[0.2em]">{model.title}</h4>
+                              </div>
+                              <Badge className="bg-primary/10 text-primary border-none uppercase text-[9px] tracking-widest px-3 py-1">{model.type}</Badge>
+                           </div>
+
+                           <div className={`relative ${model.type === 'cycle' ? 'pb-12' : ''}`}>
+                              <div className={`grid grid-cols-1 md:grid-cols-${model.steps.length > 3 ? '4' : '3'} gap-6 relative`}>
+                                 {model.steps.map((step: any, sIdx: number) => (
+                                   <React.Fragment key={sIdx}>
+                                     <motion.div 
+                                       initial={{ opacity: 0, scale: 0.9 }}
+                                       whileInView={{ opacity: 1, scale: 1 }}
+                                       viewport={{ once: true }}
+                                       transition={{ delay: (mIdx * 0.2) + (sIdx * 0.1) }}
+                                       className="p-6 rounded-[2.5rem] bg-white border-2 border-neutral-100 flex flex-col items-center text-center group hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all relative z-10"
+                                     >
+                                       <div className="w-10 h-10 rounded-2xl bg-neutral-50 shadow-sm border border-neutral-100 flex items-center justify-center text-[12px] font-black text-primary mb-4 group-hover:bg-primary group-hover:text-white group-hover:rotate-12 transition-all">
+                                         {sIdx + 1}
+                                       </div>
+                                       <p className="text-[12px] font-black text-ink mb-2">{typeof step === 'string' ? step : step.label}</p>
+                                       {step.description && <p className="text-[10px] text-ink-muted leading-relaxed font-medium">{step.description}</p>}
+                                     </motion.div>
+                                     {sIdx < model.steps.length - 1 && (
+                                       <div className="hidden md:flex absolute top-1/2 -translate-y-1/2 pointer-events-none items-center justify-center text-neutral-300" style={{ left: `${((sIdx + 1) / model.steps.length) * 100}%`, width: '4rem', marginLeft: '-2rem' }}>
+                                         <ArrowRight className="w-5 h-5 opacity-40" />
+                                       </div>
+                                     )}
+                                   </React.Fragment>
+                                 ))}
+                              </div>
+                              {model.type === 'cycle' && (
+                                <motion.div 
+                                  initial={{ opacity: 0 }}
+                                  whileInView={{ opacity: 1 }}
+                                  className="hidden md:flex absolute -bottom-4 left-1/2 -translate-x-1/2 items-center gap-2 text-[10px] font-black text-primary uppercase tracking-widest bg-primary/5 px-4 py-1.5 rounded-full border border-primary/10"
+                                >
+                                  <RotateCcw className="w-3 h-3" /> Infinite Feedback Loop
+                                </motion.div>
+                              )}
+                           </div>
                         </div>
                       ))}
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-4">
-                          <p className="text-sm font-bold text-ink uppercase tracking-widest text-[10px] flex items-center gap-2">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-primary" /> Key Takeaways
+                      {/* Glossary Section */}
+                      {generatedNotes.terms && generatedNotes.terms.length > 0 && (
+                        <div id="glossary" className="space-y-6 pt-10 border-t border-neutral-100">
+                           <div className="flex items-center gap-3">
+                              <BookOpen className="w-5 h-5 text-indigo-500" />
+                              <h4 className="text-[11px] font-black text-ink uppercase tracking-[0.2em]">Glossary of Mastery</h4>
+                           </div>
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {generatedNotes.terms.map((item: any, idx: number) => (
+                                <div key={idx} className="p-5 rounded-[1.5rem] bg-white border border-neutral-100 shadow-sm hover:shadow-md transition-all group">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h5 className="font-black text-[13px] text-ink group-hover:text-primary transition-colors">{item.term}</h5>
+                                    {item.importance && <Badge className="bg-indigo-50 text-indigo-600 border-none text-[8px] px-2 py-0.5">{item.importance}</Badge>}
+                                  </div>
+                                  <p className="text-[11px] text-ink-muted leading-relaxed font-medium">{item.definition}</p>
+                                </div>
+                              ))}
+                           </div>
+                        </div>
+                      )}
+
+                      <div id="actions" className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-10 border-t border-neutral-100">
+                        <div className="space-y-6">
+                          <p className="text-[11px] font-black text-ink uppercase tracking-[0.2em] flex items-center gap-3">
+                            <CheckCircle2 className="w-4 h-4 text-primary" /> Conceptual Mastery
                           </p>
-                          <ul className="space-y-3 pl-2">
+                          <ul className="space-y-4">
                             {generatedNotes.keyPoints.map((p: string, i: number) => (
-                              <li key={i} className="flex gap-3 text-xs text-ink-muted leading-relaxed items-start group">
-                                <div className="w-1.5 h-1.5 rounded-full bg-primary/30 group-hover:bg-primary transition-colors mt-1.5 shrink-0" />
-                                {p}
+                              <li key={i} className="flex gap-4 p-4 bg-neutral-50/50 rounded-2xl border border-neutral-100 hover:border-primary/20 transition-colors group">
+                                <div className="w-2 h-2 rounded-full bg-primary/20 group-hover:bg-primary transition-colors mt-1.5 shrink-0" />
+                                <p className="text-xs text-ink-muted leading-relaxed font-medium">{p}</p>
                               </li>
                             ))}
                           </ul>
                         </div>
 
                         {/* AI Extracted Actions */}
-                        <div className="space-y-4">
+                        <div className="space-y-8">
                           {generatedNotes.actionItems?.length > 0 && (
-                            <div className="p-5 bg-neutral-50 rounded-2xl border border-neutral-100">
-                              <p className="text-[10px] font-black uppercase text-ink-muted tracking-[0.2em] mb-4">Study Plan</p>
-                              <ul className="space-y-3">
+                            <div className="p-8 bg-[#151619] rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
+                              <div className="absolute top-0 right-0 p-8 opacity-20"><Zap className="w-12 h-12 text-primary" /></div>
+                              <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em] mb-6">Strategic Study Roadmap</p>
+                              <ul className="space-y-4">
                                 {generatedNotes.actionItems.map((task: string, i: number) => (
-                                  <li key={i} className="text-[11px] font-bold text-ink flex items-center gap-3 group cursor-pointer">
-                                    <div className="w-5 h-5 rounded-lg border-2 border-neutral-200 group-hover:border-primary group-hover:bg-primary/5 flex items-center justify-center transition-all">
-                                      <CheckCircle2 className="w-3 h-3 text-transparent group-hover:text-primary" />
+                                  <li key={i} className="text-[12px] font-bold flex items-center gap-4 group cursor-pointer hover:translate-x-2 transition-transform">
+                                    <div className="w-6 h-6 rounded-xl border-2 border-white/10 group-hover:border-primary group-hover:bg-primary flex items-center justify-center transition-all">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-transparent group-hover:text-white" />
                                     </div>
                                     {task}
                                   </li>
@@ -468,13 +783,17 @@ export const SmartNotes = () => {
                               </ul>
                             </div>
                           )}
+                          
                           {generatedNotes.deadlines?.length > 0 && (
-                            <div className="p-5 bg-rose-50/50 rounded-2xl border border-rose-100/50">
-                              <p className="text-[10px] font-black uppercase text-rose-600 tracking-[0.2em] mb-4">Milestones</p>
-                              <ul className="space-y-3">
+                            <div className="p-8 bg-rose-50/50 rounded-[2.5rem] border border-rose-100/50">
+                              <p className="text-[10px] font-black uppercase text-rose-600 tracking-[0.3em] mb-6">Critical Deadlines</p>
+                              <ul className="space-y-4">
                                 {generatedNotes.deadlines.map((date: string, i: number) => (
-                                  <li key={i} className="text-[11px] font-bold text-rose-900 flex items-center gap-3">
-                                    <Clock className="w-4 h-4 text-rose-400" /> {date}
+                                  <li key={i} className="text-xs font-black text-rose-900 flex items-center gap-4">
+                                    <div className="p-2.5 bg-white rounded-xl shadow-sm border border-rose-100">
+                                      <Clock className="w-4 h-4 text-rose-500" /> 
+                                    </div>
+                                    {date}
                                   </li>
                                 ))}
                               </ul>
@@ -484,9 +803,11 @@ export const SmartNotes = () => {
                       </div>
 
                       {generatedNotes.formula && (
-                        <div className="glass p-6 rounded-2xl border-white/60 bg-primary/5">
-                          <p className="text-xs font-black text-primary uppercase tracking-widest mb-2">Technical Core</p>
-                          <p className="text-lg font-bold text-ink font-mono">{generatedNotes.formula}</p>
+                        <div className="p-8 rounded-[2.5rem] bg-ink text-white flex flex-col items-center text-center space-y-4 shadow-xl border border-white/5">
+                          <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em]">The Golden Rule / Key Formula</p>
+                          <p className="text-2xl font-black italic tracking-tighter font-mono bg-gradient-to-r from-primary to-indigo-400 bg-clip-text text-transparent">
+                            {generatedNotes.formula}
+                          </p>
                         </div>
                       )}
                     </div>
@@ -496,36 +817,55 @@ export const SmartNotes = () => {
             </div>
           </Card>
 
-          {/* Style Selector */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button 
-              onClick={() => setActiveStyle("Detailed")}
-              className={`p-6 rounded-[2rem] border-2 transition-all text-left space-y-2 relative overflow-hidden group ${
-                activeStyle === "Detailed" 
-                  ? "bg-gradient-to-br from-indigo-600 via-primary to-purple-700 border-none shadow-xl shadow-primary/30 text-white" 
-                  : "glass border-white/60 hover:border-primary/30"
-              }`}
-            >
-              <div className={`p-3 rounded-xl w-fit transition-colors ${activeStyle === "Detailed" ? "bg-white/20 text-white" : "bg-indigo-50/60 text-ink-muted border border-indigo-100/50"}`}>
-                <Layout className="w-6 h-6 animate-pulse" />
-              </div>
-              <p className={`font-bold transition-colors ${activeStyle === "Detailed" ? "text-white" : "text-ink"}`}>Detailed Notes</p>
-              <p className={`text-xs transition-colors ${activeStyle === "Detailed" ? "text-white/80" : "text-ink-muted"}`}>In-depth and structured content with evidence.</p>
-            </button>
-            <button 
-              onClick={() => setActiveStyle("Quick")}
-              className={`p-6 rounded-[2rem] border-2 transition-all text-left space-y-2 relative overflow-hidden group ${
-                activeStyle === "Quick" 
-                  ? "bg-gradient-to-br from-indigo-600 via-primary to-purple-700 border-none shadow-xl shadow-primary/30 text-white" 
-                  : "glass border-white/60 hover:border-primary/30"
-              }`}
-            >
-              <div className={`p-3 rounded-xl w-fit transition-colors ${activeStyle === "Quick" ? "bg-white/20 text-white" : "bg-indigo-50/60 text-ink-muted border border-indigo-100/50"}`}>
-                <Sparkles className="w-6 h-6 animate-pulse" />
-              </div>
-              <p className={`font-bold transition-colors ${activeStyle === "Quick" ? "text-white" : "text-ink"}`}>Quick Summary</p>
-              <p className={`text-xs transition-colors ${activeStyle === "Quick" ? "text-white/80" : "text-ink-muted"}`}>Short and concise overview for quick review.</p>
-            </button>
+          {/* Style & Tone Selectors */}
+          <div className="space-y-4">
+            <p className="text-[10px] font-black uppercase text-ink-muted tracking-[0.2em] px-2">Knowledge Transformation Profile</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button 
+                onClick={() => setActiveStyle("Detailed")}
+                className={`p-6 rounded-[2rem] border-2 transition-all text-left space-y-2 relative overflow-hidden group ${
+                  activeStyle === "Detailed" 
+                    ? "bg-gradient-to-br from-indigo-600 via-primary to-purple-700 border-none shadow-xl shadow-primary/30 text-white" 
+                    : "glass border-white/60 hover:border-primary/30"
+                }`}
+              >
+                <div className={`p-3 rounded-xl w-fit transition-colors ${activeStyle === "Detailed" ? "bg-white/20 text-white" : "bg-indigo-50/60 text-ink-muted border border-indigo-100/50"}`}>
+                  <Layout className="w-6 h-6 animate-pulse" />
+                </div>
+                <p className={`font-bold transition-colors ${activeStyle === "Detailed" ? "text-white" : "text-ink"}`}>Detailed Notes</p>
+                <p className={`text-xs transition-colors ${activeStyle === "Detailed" ? "text-white/80" : "text-ink-muted"}`}>In-depth and structured content with evidence.</p>
+              </button>
+              <button 
+                onClick={() => setActiveStyle("Quick")}
+                className={`p-6 rounded-[2rem] border-2 transition-all text-left space-y-2 relative overflow-hidden group ${
+                  activeStyle === "Quick" 
+                    ? "bg-gradient-to-br from-indigo-600 via-primary to-purple-700 border-none shadow-xl shadow-primary/30 text-white" 
+                    : "glass border-white/60 hover:border-primary/30"
+                }`}
+              >
+                <div className={`p-3 rounded-xl w-fit transition-colors ${activeStyle === "Quick" ? "bg-white/20 text-white" : "bg-indigo-50/60 text-ink-muted border border-indigo-100/50"}`}>
+                  <Sparkles className="w-6 h-6 animate-pulse" />
+                </div>
+                <p className={`font-bold transition-colors ${activeStyle === "Quick" ? "text-white" : "text-ink"}`}>Quick Summary</p>
+                <p className={`text-xs transition-colors ${activeStyle === "Quick" ? "text-white/80" : "text-ink-muted"}`}>Short and concise overview for quick review.</p>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 p-2 glass rounded-2xl border-white/60">
+              {["Academic", "Simplified", "Storytelling"].map(tone => (
+                <button
+                  key={tone}
+                  onClick={() => setLearningTone(tone)}
+                  className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    learningTone === tone 
+                      ? "bg-primary text-white shadow-lg shadow-primary/20" 
+                      : "text-ink-muted hover:bg-white/40"
+                  }`}
+                >
+                  {tone}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Flashcards Preview */}
@@ -618,6 +958,94 @@ export const SmartNotes = () => {
           </Card>
         </div>
       </div>
+
+      {/* Share Modal */}
+      <AnimatePresence>
+        {isShareModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsShareModalOpen(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg glass p-10 rounded-[3rem] border-white/60 shadow-2xl space-y-8"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center text-white shadow-xl shadow-primary/20">
+                  <Globe className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-ink">Publish to Class</h3>
+                  <p className="text-sm text-ink-muted">Select a class to share these Reo notes with.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {classrooms.length > 0 ? (
+                  <div className="grid gap-3">
+                    {classrooms.map(cls => (
+                      <button 
+                        key={cls.id}
+                        onClick={() => setSelectedClassId(cls.id)}
+                        className={`w-full p-4 rounded-2xl border-2 text-left flex items-center justify-between transition-all ${
+                          selectedClassId === cls.id 
+                            ? "bg-primary/5 border-primary shadow-sm" 
+                            : "bg-white/40 border-transparent hover:border-primary/20"
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selectedClassId === cls.id ? "bg-primary text-white" : "bg-neutral-100 text-neutral-400"}`}>
+                            <Users className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-ink">{cls.name}</p>
+                            <p className="text-[10px] font-black text-ink-muted uppercase">{cls.code}</p>
+                          </div>
+                        </div>
+                        {selectedClassId === cls.id && <CheckCircle2 className="w-5 h-5 text-primary" />}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center border-2 border-dashed border-neutral-100 rounded-3xl">
+                    <p className="text-sm font-medium text-ink-muted mb-4">You haven't created any classrooms yet.</p>
+                    <button 
+                      onClick={() => setIsShareModalOpen(false)}
+                      className="text-xs font-black uppercase tracking-widest text-primary hover:underline"
+                    >
+                      Go to Classrooms Tab
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsShareModalOpen(false)}
+                  className="flex-1 py-4 border border-neutral-100 text-ink font-bold rounded-2xl hover:bg-neutral-50 transition-all font-black text-xs uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={!selectedClassId || isSharing}
+                  onClick={handleShare}
+                  className="flex-1 py-4 bg-primary text-white font-bold rounded-2xl shadow-xl shadow-primary/20 disabled:opacity-50 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  {isSharing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                  {isSharing ? "Publishing..." : "Publish Notes"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   Sparkles, 
   Plus, 
-  Trash2, 
   Save, 
   Brain, 
   CheckCircle2, 
@@ -12,10 +11,12 @@ import {
   ListChecks,
   Trash,
   Clock,
-  Circle
+  Circle,
+  Globe,
+  Users
 } from "lucide-react";
 import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, deleteDoc, doc } from "firebase/firestore";
-import { db, isDemoMode } from "../lib/firebase";
+import { db, isDemoMode, handleFirestoreError } from "../lib/firebase";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { getGeminiModel } from "../lib/gemini";
 
@@ -48,6 +49,22 @@ export const QuizBuilder = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [publishedQuizzes, setPublishedQuizzes] = useState<any[]>([]);
   const [activeView, setActiveView] = useState<"builder" | "published">("builder");
+  const [classrooms, setClassrooms] = useState<any[]>([]);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [isSharing, setIsSharing] = useState(false);
+
+  // Fetch teacher's classrooms
+  useEffect(() => {
+    if (!user || isDemoMode) return;
+    const q = query(collection(db!, "classrooms"), where("teacherId", "==", user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setClassrooms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, "classrooms");
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   // Fetch teacher's published quizzes
   useEffect(() => {
@@ -61,6 +78,8 @@ export const QuizBuilder = () => {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setPublishedQuizzes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, "list" as any, "quizzes");
     });
 
     return () => unsubscribe();
@@ -104,7 +123,7 @@ export const QuizBuilder = () => {
       }
 
       const prompt = `
-        System: You are Rio, the Neural Academic Architect. You specialize in designing high-quality, pedagogically sound assessments that target critical thinking and neural retention.
+        System: You are Reo, the Neural Academic Architect. You specialize in designing high-quality, pedagogically sound assessments that target critical thinking and neural retention.
         
         Task: Create a comprehensive quiz about "${generationTopic}". 
         Include exactly 5 questions of various types:
@@ -187,7 +206,7 @@ export const QuizBuilder = () => {
            questions: [...prev.questions, ...mockQuestions]
          }));
       } else {
-        alert(`Rio encountered an error: ${errorMessage}. Please try again.`);
+        alert(`Reo encountered an error: ${errorMessage}. Please try again.`);
       }
     } finally {
       setIsGenerating(false);
@@ -200,24 +219,51 @@ export const QuizBuilder = () => {
       return;
     }
 
+    if (classrooms.length === 0) {
+      alert("You need to create a classroom first to publish and share a quiz.");
+      return;
+    }
+
+    setIsShareModalOpen(true);
+  };
+
+  const publishAndShareQuiz = async () => {
+    if (!selectedClassId || !user) return;
+    setIsSharing(true);
     setIsSaving(true);
     try {
       if (!isDemoMode) {
-        await addDoc(collection(db!, "quizzes"), {
+        // 1. Create global quiz
+        const quizRef = await addDoc(collection(db!, "quizzes"), {
           ...quiz,
           teacherId: user.uid,
           teacherName: user.displayName || "Scholar",
+          visibility: "public",
           publishedAt: serverTimestamp(),
         });
+
+        // 2. Share with classroom
+        const selectedClass = classrooms.find(c => c.id === selectedClassId);
+        await addDoc(collection(db!, "classrooms", selectedClassId, "sharedResources"), {
+          title: quiz.title,
+          type: "QUIZ",
+          content: { ...quiz, id: quizRef.id },
+          teacherId: user.uid,
+          classId: selectedClassId,
+          studentIds: selectedClass?.studentIds || [],
+          sharedAt: serverTimestamp()
+        });
       }
-      alert("Quiz published successfully! Students can now see and attempt it.");
+      alert("Quiz published and shared with the class successfully!");
       setQuiz({ title: "", description: "", questions: [] });
+      setIsShareModalOpen(false);
       setActiveView("published");
     } catch (error) {
-      console.error("Save failed:", error);
+      console.error("Save/Share failed:", error);
       alert("Failed to publish quiz. Please try again.");
     } finally {
       setIsSaving(false);
+      setIsSharing(false);
     }
   };
 
@@ -230,9 +276,9 @@ export const QuizBuilder = () => {
       } else {
         setPublishedQuizzes(prev => prev.filter(q => q.id !== quizId));
       }
+      alert("Quiz deleted successfully.");
     } catch (error) {
-      console.error("Delete failed:", error);
-      alert("Failed to delete quiz.");
+      handleFirestoreError(error, "delete" as any, `quizzes/${quizId}`);
     }
   };
 
@@ -244,7 +290,7 @@ export const QuizBuilder = () => {
             <ListChecks className="w-10 h-10 text-indigo-600" />
             Quiz Engine
           </h2>
-          <p className="text-ink-muted font-light mt-1">Design and manage assessments with Rio's neural insights.</p>
+          <p className="text-ink-muted font-light mt-1">Design and manage assessments with Reo's neural insights.</p>
         </div>
         <div className="flex items-center gap-2 p-1.5 bg-neutral-100 rounded-2xl">
            <button 
@@ -297,8 +343,20 @@ export const QuizBuilder = () => {
             </div>
 
             <div className="space-y-6 pt-8 border-t border-neutral-100">
-              <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4">
                 <h4 className="text-sm font-black uppercase text-ink tracking-widest">Question Stack ({quiz.questions.length})</h4>
+                {quiz.questions.length > 0 && (
+                  <button 
+                    onClick={() => {
+                      if (window.confirm("Clear all questions in this draft?")) {
+                        setQuiz(prev => ({ ...prev, questions: [] }));
+                      }
+                    }}
+                    className="text-[10px] font-black uppercase tracking-widest text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-all"
+                  >
+                    Clear Draft
+                  </button>
+                )}
               </div>
 
               <div className="space-y-6">
@@ -314,9 +372,10 @@ export const QuizBuilder = () => {
                     >
                       <button 
                         onClick={() => removeQuestion(q.id)}
-                        className="absolute top-6 right-6 p-2 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all md:opacity-0 group-hover:opacity-100"
+                        className="absolute top-6 right-6 p-2.5 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
+                        title="Remove question"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash className="w-5 h-5" />
                       </button>
 
                       <div className="flex flex-col md:flex-row gap-6">
@@ -394,7 +453,7 @@ export const QuizBuilder = () => {
                                   type="text"
                                   value={q.correctAnswer}
                                   onChange={(e) => updateQuestion(q.id, { correctAnswer: e.target.value })}
-                                  placeholder="What answer should Rio look for?"
+                                  placeholder="What answer should Reo look for?"
                                   className="w-full text-sm bg-neutral-50 border border-neutral-100 rounded-xl px-6 py-3 outline-none focus:ring-4 ring-indigo-50 focus:bg-white transition-all"
                                 />
                               </div>
@@ -413,7 +472,7 @@ export const QuizBuilder = () => {
                   </div>
                   <div className="space-y-2 max-w-xs">
                     <h3 className="text-xl font-bold text-ink">Empty Canvas</h3>
-                    <p className="text-sm text-ink-muted font-light">Create questions manually using the tools below or let Rio assist you.</p>
+                    <p className="text-sm text-ink-muted font-light">Create questions manually using the tools below or let Reo assist you.</p>
                   </div>
                 </div>
               )}
@@ -452,7 +511,7 @@ export const QuizBuilder = () => {
             </div>
           </div>
 
-          {/* Rio AI Sidebar */}
+          {/* Reo AI Sidebar */}
             <div className="lg:col-span-4 lg:sticky lg:top-28 space-y-6">
               <div className="glass p-8 rounded-[3rem] border-white/60 bg-gradient-to-br from-indigo-600 via-indigo-700 to-slate-900 text-white shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl" />
@@ -462,7 +521,7 @@ export const QuizBuilder = () => {
                        <Brain className="w-8 h-8 text-indigo-100" />
                     </div>
                     <div>
-                      <h3 className="text-2xl font-black italic tracking-tight">Rio Assistant</h3>
+                      <h3 className="text-2xl font-black italic tracking-tight">Reo Assistant</h3>
                       <p className="text-[10px] uppercase font-black tracking-widest text-indigo-200">Neural Quiz Engine</p>
                     </div>
                   </div>
@@ -480,7 +539,7 @@ export const QuizBuilder = () => {
                           <div className="absolute inset-0 bg-indigo-900/40 backdrop-blur-sm rounded-3xl flex items-center justify-center">
                              <div className="flex flex-col items-center gap-3">
                                <LoaderSpinner />
-                               <span className="text-xs font-black uppercase tracking-widest"> Rio is thinking...</span>
+                               <span className="text-xs font-black uppercase tracking-widest"> Reo is thinking...</span>
                              </div>
                           </div>
                         )}
@@ -524,17 +583,18 @@ export const QuizBuilder = () => {
                     key={quiz.id} 
                     className="glass p-8 rounded-[2.5rem] border-white/60 shadow-lg group relative overflow-hidden"
                   >
-                    <div className="flex items-center justify-between mb-6">
-                       <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                          <ListChecks className="w-6 h-6" />
-                       </div>
-                       <button 
-                         onClick={() => handleDeleteQuiz(quiz.id)}
-                         className="p-2 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                       >
-                         <Trash className="w-4 h-4" />
-                       </button>
-                    </div>
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                           <ListChecks className="w-6 h-6" />
+                        </div>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteQuiz(quiz.id); }}
+                          className="p-2.5 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
+                          title="Delete Quiz"
+                        >
+                          <Trash className="w-5 h-5" />
+                        </button>
+                      </div>
                     <h3 className="text-xl font-bold text-ink mb-2 line-clamp-1">{quiz.title}</h3>
                     <p className="text-xs text-ink-muted line-clamp-2 mb-6 font-light">{quiz.description || "No description provided."}</p>
                     
@@ -554,6 +614,94 @@ export const QuizBuilder = () => {
               </div>
             )}
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Share Modal */}
+      <AnimatePresence>
+        {isShareModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsShareModalOpen(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg glass p-10 rounded-[3rem] border-white/60 shadow-2xl space-y-8"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center text-white shadow-xl shadow-primary/20">
+                  <Globe className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-ink">Publish to Class</h3>
+                  <p className="text-sm text-ink-muted">Select a class to share this quiz with.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {classrooms.length > 0 ? (
+                  <div className="grid gap-3">
+                    {classrooms.map(cls => (
+                      <button 
+                        key={cls.id}
+                        onClick={() => setSelectedClassId(cls.id)}
+                        className={`w-full p-4 rounded-2xl border-2 text-left flex items-center justify-between transition-all ${
+                          selectedClassId === cls.id 
+                            ? "bg-primary/5 border-primary shadow-sm" 
+                            : "bg-white/40 border-transparent hover:border-primary/20"
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selectedClassId === cls.id ? "bg-primary text-white" : "bg-neutral-100 text-neutral-400"}`}>
+                            <Users className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-ink">{cls.name}</p>
+                            <p className="text-[10px] font-black text-ink-muted uppercase">{cls.code}</p>
+                          </div>
+                        </div>
+                        {selectedClassId === cls.id && <CheckCircle2 className="w-5 h-5 text-primary" />}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center border-2 border-dashed border-neutral-100 rounded-3xl">
+                    <p className="text-sm font-medium text-ink-muted mb-4">You haven't created any classrooms yet.</p>
+                    <button 
+                      onClick={() => setIsShareModalOpen(false)}
+                      className="text-xs font-black uppercase tracking-widest text-primary hover:underline"
+                    >
+                      Go to Classrooms Tab
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsShareModalOpen(false)}
+                  className="flex-1 py-4 border border-neutral-100 text-ink font-bold rounded-2xl hover:bg-neutral-50 transition-all font-black text-xs uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={!selectedClassId || isSharing}
+                  onClick={publishAndShareQuiz}
+                  className="flex-1 py-4 bg-primary text-white font-bold rounded-2xl shadow-xl shadow-primary/20 disabled:opacity-50 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 font-black text-xs uppercase tracking-widest"
+                >
+                  {isSharing ? <LoaderSpinner /> : <Sparkles className="w-5 h-5" />}
+                  {isSharing ? "Publishing..." : "Publish Quiz"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

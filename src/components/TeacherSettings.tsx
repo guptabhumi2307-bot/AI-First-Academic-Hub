@@ -193,7 +193,7 @@ export const TeacherSettings = () => {
           </div>
           <div className="space-y-8">
             {[
-              { label: "Student Inquiries", desc: "Alert when students ask Rio", enabled: true, icon: CheckCircle2 },
+              { label: "Student Inquiries", desc: "Alert when students ask Reo", enabled: true, icon: CheckCircle2 },
               { label: "Course Deployment", desc: "Notify on syllabus changes", enabled: false, icon: Zap },
               { label: "Neural Insights", desc: "Weekly class mastery report", enabled: true, icon: Sparkles }
             ].map((item, i) => (

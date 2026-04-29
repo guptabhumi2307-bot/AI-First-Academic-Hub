@@ -175,7 +175,7 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
         ];
         setRoadmap(demoRoadmap);
       } else {
-        alert("Rio was unable to architect your syllabus. Please ensure the file is clear or try pasting the text instructions.");
+        alert("Reo was unable to architect your syllabus. Please ensure the file is clear or try pasting the text instructions.");
       }
     } finally {
       clearInterval(interval);
@@ -232,13 +232,13 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-4xl font-bold text-ink mb-2 tracking-tight">Syllabus Architect</h2>
-          <p className="text-ink-muted font-light">Rio builds your entire semester roadmap in seconds.</p>
+          <p className="text-ink-muted font-light">Reo builds your entire semester roadmap in seconds.</p>
         </div>
         <div className="flex items-center gap-4 bg-indigo-600/10 px-6 py-3 rounded-2xl border border-indigo-600/20">
            <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
               <Sparkles className="w-4 h-4" />
            </div>
-           <p className="text-sm font-bold text-indigo-600">Rio AI Engine Active</p>
+           <p className="text-sm font-bold text-indigo-600">Reo AI Engine Active</p>
         </div>
       </div>
 
@@ -293,7 +293,7 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
               {isAnalyzing ? (
                 <>
                   <div className="w-5 h-5 border-2 border-neutral-300 border-t-neutral-600 rounded-full animate-spin" />
-                  Rio is Analyzing...
+                  Reo is Analyzing...
                 </>
               ) : (
                 <>
@@ -310,7 +310,7 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
                 <h4 className="font-bold text-ink">Architect's Tip</h4>
              </div>
              <p className="text-xs text-ink-muted leading-relaxed">
-               For best results, include **exam dates**, **weekly topics**, and **grading weight**. Rio will prioritize items that impact your final grade most.
+               For best results, include **exam dates**, **weekly topics**, and **grading weight**. Reo will prioritize items that impact your final grade most.
              </p>
           </div>
         </div>
@@ -360,7 +360,7 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
                   <Upload className="w-10 h-10 text-neutral-300" />
                 </div>
                 <h3 className="text-2xl font-bold text-ink/30 italic">No Roadmap Generated Yet</h3>
-                <p className="text-neutral-400 text-sm max-w-sm mt-2">Paste your syllabus content on the left and let Rio handle the organization.</p>
+                <p className="text-neutral-400 text-sm max-w-sm mt-2">Paste your syllabus content on the left and let Reo handle the organization.</p>
               </motion.div>
             ) : (
               <motion.div 
@@ -371,7 +371,7 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
               >
                 {/* Summary Header */}
                 {summary && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="glass p-6 rounded-3xl bg-primary/5 border-primary/10">
                       <p className="text-[10px] font-black uppercase text-ink-muted tracking-widest mb-1">Primary Focus</p>
                       <p className="font-bold text-ink truncate">{summary.primaryFocus}</p>
@@ -388,13 +388,23 @@ export const SyllabusArchitect = ({ onNavigate }: { onNavigate: (tab: string) =>
                         <Clock className="w-4 h-4 text-amber-500" /> {summary.criticalMilestones}
                       </p>
                     </div>
+                    <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-3xl text-white shadow-lg shadow-emerald-500/20">
+                      <p className="text-[10px] font-black uppercase text-white/60 tracking-widest mb-1">Architecture Health</p>
+                      <p className="text-xl font-black italic">OPTIMAL</p>
+                    </div>
                   </div>
                 )}
 
                 <div className="space-y-6">
                   <div className="flex items-center justify-between px-4">
                     <h3 className="text-xl font-bold text-ink">Academic Roadmap</h3>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-4">
+                       <div className="flex flex-col items-end gap-1">
+                          <span className="text-[8px] font-black uppercase text-ink-muted leading-none">Architectural Coverage</span>
+                          <div className="w-32 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+                             <div className="h-full bg-primary" style={{ width: '100%' }} />
+                          </div>
+                       </div>
                        <button 
                          onClick={syncToPlanner}
                          disabled={isSyncing || syncSuccess}
