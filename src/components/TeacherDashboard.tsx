@@ -23,6 +23,7 @@ import {
   FileText,
   HelpCircle,
   ListChecks,
+  MessageSquare,
   X,
   Command,
   ArrowRight
@@ -38,6 +39,8 @@ import { TeacherAnalytics } from "./TeacherAnalytics";
 import { SmartNotes } from "./SmartNotes";
 import { ResourceManager } from "./ResourceManager";
 import { LessonScriptGenerator } from "./LessonScriptGenerator";
+import { REOEvaluator } from "./REOEvaluator";
+import { NeuralBridge } from "./NeuralBridge";
 
 const SidebarItem = ({ icon: Icon, label, active = false, onClick, collapsed = false, variant = "default" }: any) => (
   <button 
@@ -349,6 +352,8 @@ export const TeacherDashboard = () => {
 
         <nav className="flex-1 space-y-1.5 overflow-y-auto pr-1 custom-scrollbar dark-scrollbar">
           <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === "Dashboard"} onClick={() => setActiveTab("Dashboard")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={Sparkles} label="REO Evaluator" active={activeTab === "REO"} onClick={() => setActiveTab("REO")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={MessageSquare} label="Neural Bridge" active={activeTab === "Bridge"} onClick={() => setActiveTab("Bridge")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={FileText} label="Syllabus Architect" active={activeTab === "Syllabus"} onClick={() => setActiveTab("Syllabus")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={Users} label="Classrooms" active={activeTab === "Classrooms"} onClick={() => setActiveTab("Classrooms")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={Command} label="Script Engine" active={activeTab === "Scripts"} onClick={() => setActiveTab("Scripts")} collapsed={!isSidebarOpen} />
@@ -476,6 +481,21 @@ export const TeacherDashboard = () => {
               transition={{ duration: 0.3 }}
             >
               {activeTab === "Dashboard" && <TeacherHome onNavigate={setActiveTab} />}
+              {activeTab === "REO" && <REOEvaluator />}
+              {activeTab === "Bridge" && (
+                <div className="max-w-4xl mx-auto py-10">
+                  <div className="mb-10">
+                    <h2 className="text-4xl font-black text-ink tracking-tighter italic uppercase">Neural <span className="text-indigo-600">Bridge</span></h2>
+                    <p className="text-ink-muted font-bold text-sm uppercase tracking-widest">Active Teacher-Student Support Links</p>
+                  </div>
+                  <NeuralBridge 
+                    recipientId="st123" 
+                    recipientName="Student Registry" 
+                    currentUser={user} 
+                    isTeacherView={true} 
+                  />
+                </div>
+              )}
               {activeTab === "Classrooms" && <Classrooms />}
               {activeTab === "Scripts" && <LessonScriptGenerator />}
               {activeTab === "Quiz" && <QuizBuilder />}
