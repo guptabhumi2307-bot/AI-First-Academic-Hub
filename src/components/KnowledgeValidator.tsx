@@ -22,6 +22,7 @@ import {
   Search
 } from "lucide-react";
 import { GoogleGenAI } from "@google/genai";
+import { neuralKeyManager } from "../lib/keyRotation";
 import { Badge } from "./ui/Badge";
 import { Card } from "./ui/Card";
 
@@ -32,13 +33,13 @@ export const KnowledgeValidator = () => {
   const [analysis, setAnalysis] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-
   const validateKnowledge = async () => {
     if (!topic || !explanation) return;
     
     setIsAnalyzing(true);
     setAnalysis(null);
+
+    const ai = new GoogleGenAI({ apiKey: neuralKeyManager.getNextKey() });
 
     const prompt = `
       You are 'Neural Buddy', a cognitive diagnostic AI. A student is trying to explain the topic: '${topic}'.

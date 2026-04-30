@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { isDemoMode } from "../lib/firebase";
 import { getGeminiModel } from "../lib/gemini";
+import { neuralKeyManager } from "../lib/keyRotation";
 import { 
   Upload, 
   FileText, 
@@ -147,7 +148,7 @@ export const SmartNotes = () => {
     if (!generatedNotes || isGeneratingFlashcards) return;
     setIsGeneratingFlashcards(true);
     try {
-      const hasKey = !!process.env.GEMINI_API_KEY;
+      const hasKey = neuralKeyManager.hasKeys();
 
       if (!hasKey && isDemoMode) {
         await new Promise(resolve => setTimeout(resolve, 1500));
@@ -279,7 +280,7 @@ export const SmartNotes = () => {
         // Here we could persist to a storage service
       }
       // Prioritize Real AI if key exists, otherwise check demo mode
-      const hasKey = !!process.env.GEMINI_API_KEY;
+      const hasKey = neuralKeyManager.hasKeys();
 
       if (!hasKey && isDemoMode) {
         // Simulation for Demo Mode

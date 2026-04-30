@@ -22,6 +22,7 @@ import {
   Ear
 } from "lucide-react";
 import { GoogleGenAI, Modality } from "@google/genai";
+import { neuralKeyManager } from "../lib/keyRotation";
 import { Badge } from "./ui/Badge";
 import { Card } from "./ui/Card";
 
@@ -33,8 +34,6 @@ export const AIAudioNotes = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
   const playPCM = async (base64Data: string) => {
     try {
@@ -83,6 +82,8 @@ export const AIAudioNotes = () => {
     setIsGenerating(true);
     setAudioUrl(null);
     setTranscript("");
+
+    const ai = new GoogleGenAI({ apiKey: neuralKeyManager.getNextKey() });
 
     try {
       // Step 1: Generate Transcript

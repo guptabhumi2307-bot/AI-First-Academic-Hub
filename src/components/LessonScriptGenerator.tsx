@@ -17,6 +17,7 @@ import {
   BookOpen
 } from "lucide-react";
 import { GoogleGenAI, Type } from "@google/genai";
+import { neuralKeyManager } from "../lib/keyRotation";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, deleteDoc, doc } from "firebase/firestore";
 import { db, handleFirestoreError } from "../lib/firebase";
@@ -71,7 +72,7 @@ export const LessonScriptGenerator = () => {
     setGeneratedScript(null);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = new GoogleGenAI({ apiKey: neuralKeyManager.getNextKey() });
       const prompt = `Generate a neuro-scientifically grounded lesson script for the topic: "${topic}".
       Include:
       1. 3 Engagement Hooks: Mind-blowing facts or questions to grab attention.

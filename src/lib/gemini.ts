@@ -4,23 +4,14 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-
-let ai: GoogleGenAI | null = null;
-
-function initAI() {
-  if (!ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not set. Please add it to your environment variables.");
-    }
-    ai = new GoogleGenAI({ apiKey });
-  }
-}
+import { neuralKeyManager } from "./keyRotation";
 
 export function getGenAI() {
-  initAI();
-  if (!ai) throw new Error("AI not initialized");
-  return ai;
+  const apiKey = neuralKeyManager.getNextKey();
+  if (!apiKey) {
+    throw new Error("No GEMINI_API_KEY detected in environment. Please add it to your secrets.");
+  }
+  return new GoogleGenAI({ apiKey });
 }
 
 // Keeping this for compatibility but updating it to use the new pattern
