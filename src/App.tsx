@@ -21,11 +21,13 @@ import {
   Search,
   User as UserIcon,
   Zap,
+  Brain,
   MoreVertical,
   CheckCircle2,
   X,
   Plus,
   Upload,
+  Music,
   Clock,
   RotateCcw,
   Share2,
@@ -49,11 +51,13 @@ import { Quizzes } from "./components/Quizzes";
 import { SmartNotes } from "./components/SmartNotes";
 import { Home as HomePage } from "./components/Home";
 import { KnowledgeGraph } from "./components/KnowledgeGraph";
+import { KnowledgeValidator } from "./components/KnowledgeValidator";
 import { SyllabusArchitect } from "./components/SyllabusArchitect";
 import { FocusRooms } from "./components/FocusRooms";
 import { CareerExplorer } from "./components/CareerExplorer";
 import { KnowledgeArena } from "./components/KnowledgeArena";
 import { NeuralBridge } from "./components/NeuralBridge";
+import { AIAudioNotes } from "./components/AIAudioNotes";
 import { StudentSettings } from "./components/StudentSettings";
 import { formatISTDate, formatISTTime } from "./lib/utils";
 import { RoleSelector } from "./components/RoleSelector";
@@ -370,7 +374,9 @@ const AppContent = () => {
           <SidebarItem icon={FolderOpen} label="Resources" active={activeTab === "Resources"} onClick={() => setActiveTab("Resources")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={MessageSquare} label="AI Chat" active={activeTab === "AI Chat"} onClick={() => setActiveTab("AI Chat")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={Plus} label="Quizzes" active={activeTab === "Quizzes"} onClick={() => setActiveTab("Quizzes")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={Music} label="Audio Notes" active={activeTab === "Audio Notes"} onClick={() => setActiveTab("Audio Notes")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={MessageSquare} label="Mentor Bridge" active={activeTab === "Bridge"} onClick={() => setActiveTab("Bridge")} collapsed={!isSidebarOpen} />
+          <SidebarItem icon={Brain} label="Neural Buddy" active={activeTab === "Buddy"} onClick={() => setActiveTab("Buddy")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={Sword} label="Knowledge Arena" active={activeTab === "Arena"} onClick={() => setActiveTab("Arena")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={ClipboardList} label="Study Planner" active={activeTab === "Planner"} onClick={() => setActiveTab("Planner")} collapsed={!isSidebarOpen} />
           <SidebarItem icon={Compass} label="Career Explorer" active={activeTab === "Career Explorer"} onClick={() => setActiveTab("Career Explorer")} collapsed={!isSidebarOpen} />
@@ -417,10 +423,10 @@ const AppContent = () => {
         <header className="h-20 border-b border-white/20 bg-white/10 backdrop-blur-3xl px-10 flex items-center justify-between sticky top-0 z-10 text-ink">
           <div className="flex items-center gap-8">
             <nav className="flex items-center gap-6">
-              {["Home", "Notes", "Chat", "Quizzes", "Arena", "Planner", "Resources"].map(t => (
+              {["Home", "Notes", "Chat", "Quizzes", "Buddy", "Audio Notes", "Arena", "Planner", "Resources"].map(t => (
                 <button 
                   key={t} 
-                  className={`text-sm font-bold transition-all ${t === activeTab || (t === "Notes" && activeTab === "Smart Notes") || (t === "Chat" && activeTab === "AI Chat") || (t === "Arena" && activeTab === "Arena") ? "text-primary border-b-2 border-primary pb-0.5" : "text-ink-muted hover:text-ink"}`}
+                  className={`text-sm font-bold transition-all ${t === activeTab || (t === "Notes" && activeTab === "Smart Notes") || (t === "Chat" && activeTab === "AI Chat") || (t === "Arena" && activeTab === "Arena") || (t === "Buddy" && activeTab === "Buddy") || (t === "Audio Notes" && activeTab === "Audio Notes") ? "text-primary border-b-2 border-primary pb-0.5" : "text-ink-muted hover:text-ink"}`}
                   onClick={() => setActiveTab(t === "Chat" ? "AI Chat" : t)}
                 >
                   {t}
@@ -541,7 +547,9 @@ const AppContent = () => {
               {activeTab === "AI Chat" ? <AIChatPage /> : null}
               {activeTab === "Planner" || activeTab === "Study Planner" ? <StudyPlanner /> : null}
               {activeTab === "Quizzes" ? <Quizzes /> : null}
+              {activeTab === "Audio Notes" && <AIAudioNotes />}
               {activeTab === "Arena" && <KnowledgeArena />}
+              {activeTab === "Buddy" && <KnowledgeValidator />}
               {activeTab === "Bridge" && (
                 <div className="max-w-4xl mx-auto py-10 px-6">
                   <div className="mb-10 text-center">

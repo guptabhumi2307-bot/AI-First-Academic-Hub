@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { isDemoMode } from "../lib/firebase";
 import { getGeminiModel } from "../lib/gemini";
@@ -33,7 +33,11 @@ import {
   CircleStop,
   Clock,
   Globe,
-  Users
+  Users,
+  Play,
+  Pause,
+  Trash2,
+  Volume2
 } from "lucide-react";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot } from "firebase/firestore";
@@ -103,6 +107,29 @@ export const SmartNotes = () => {
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
   const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let interval: any;
+    if (isRecording) {
+      interval = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      setRecordingTime(0);
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isRecording]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const getVCardColors = (suffix: string) => {
     const colors: Record<string, any> = {
@@ -214,6 +241,9 @@ export const SmartNotes = () => {
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = async () => {
         const blob = new Blob(chunks, { type: "audio/wav" });
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = (reader.result as string).split(",")[1];
@@ -244,6 +274,10 @@ export const SmartNotes = () => {
 
     setIsGenerating(true);
     try {
+      // Save original audio notes if needed locally
+      if (audioUrl) {
+        // Here we could persist to a storage service
+      }
       // Prioritize Real AI if key exists, otherwise check demo mode
       const hasKey = !!process.env.GEMINI_API_KEY;
 
@@ -404,15 +438,15 @@ export const SmartNotes = () => {
                 {isRecording ? (
                   <motion.button 
                     animate={{ 
-                      scale: [1, 1.05, 1],
-                      boxShadow: ["0 0 0px rgba(239, 68, 68, 0)", "0 0 20px rgba(239, 68, 68, 0.4)", "0 0 0px rgba(239, 68, 68, 0)"]
+                      scale: [1, 1.02, 1],
+                      boxShadow: ["0 0 0px rgba(239, 68, 68, 0)", "0 0 20px rgba(239, 68, 68, 0.2)", "0 0 0px rgba(239, 68, 68, 0)"]
                     }}
                     transition={{ repeat: Infinity, duration: 1.5 }}
                     onClick={stopRecording}
-                    className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg border border-white/20"
+                    className="flex items-center gap-3 px-5 py-2.5 bg-rose-500 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg border border-white/20 transition-all"
                   >
-                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                    Stop Recording
+                    <div className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                    {formatTime(recordingTime)} - Stop Scribing
                   </motion.button>
                 ) : (
                   <button 
@@ -427,24 +461,64 @@ export const SmartNotes = () => {
             </div>
 
             <div className="space-y-4 mb-6">
-              {(audioBase64 || uploadedFile) && !isRecording && (
-                <div className="flex flex-col gap-2 mb-4">
-                  {audioBase64 && (
-                    <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-emerald-500 text-white rounded-lg flex items-center justify-center">
-                          <Mic className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-emerald-900">Audio Lecture Captured</p>
-                          <p className="text-[10px] text-emerald-600 font-medium">Ready for AI processing</p>
-                        </div>
-                      </div>
-                      <button onClick={() => setAudioBase64(null)} className="text-emerald-400 hover:text-emerald-600">
-                        <RotateCcw className="w-4 h-4" />
+              {isRecording && (
+                <div className="p-10 bg-rose-50/50 border-2 border-dashed border-rose-200 rounded-[2rem] flex flex-col items-center justify-center gap-4 animate-pulse">
+                   <div className="flex gap-1 items-end h-12">
+                      {[...Array(12)].map((_, i) => (
+                        <motion.div 
+                          key={i}
+                          animate={{ height: [12, Math.random() * 40 + 10, 12] }}
+                          transition={{ repeat: Infinity, duration: 0.5, delay: i * 0.05 }}
+                          className="w-1.5 bg-rose-500 rounded-full"
+                        />
+                      ))}
+                   </div>
+                   <p className="text-[10px] font-black uppercase text-rose-600 tracking-widest">Neural Audio Scribe Active</p>
+                </div>
+              )}
+
+              {audioUrl && !isRecording && (
+                <div className="p-6 bg-white border-2 border-neutral-100 rounded-[2rem] shadow-sm flex items-center justify-between">
+                   <div className="flex items-center gap-4">
+                      <button 
+                        onClick={() => {
+                          if (audioRef.current) {
+                            if (isPlaying) audioRef.current.pause();
+                            else audioRef.current.play();
+                            setIsPlaying(!isPlaying);
+                          }
+                        }}
+                        className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-200 hover:scale-105 transition-all"
+                      >
+                         {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-1" />}
                       </button>
-                    </div>
-                  )}
+                      <div>
+                         <p className="text-xs font-black text-ink uppercase tracking-tight">Audio Scribe Fragment</p>
+                         <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest">Captured Lecture Node</p>
+                      </div>
+                      <audio 
+                        ref={audioRef} 
+                        src={audioUrl} 
+                        onEnded={() => setIsPlaying(false)} 
+                        className="hidden" 
+                      />
+                   </div>
+                   <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-50 rounded-lg">
+                         <Volume2 className="w-4 h-4 text-neutral-400" />
+                         <div className="w-24 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-600 w-2/3" />
+                         </div>
+                      </div>
+                      <button 
+                        onClick={() => { setAudioUrl(null); setAudioBase64(null); }}
+                        className="p-3 text-rose-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                      >
+                         <Trash2 className="w-5 h-5" />
+                      </button>
+                   </div>
+                </div>
+              )}
                   {uploadedFile && (
                     <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
                       <div className="flex items-center gap-3">
@@ -461,11 +535,9 @@ export const SmartNotes = () => {
                       </button>
                     </div>
                   )}
-                </div>
-              )}
-              
-              <textarea 
-                value={input}
+               
+               <textarea 
+                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Paste text OR Record a lecture above... Reo will merge both contexts into your notes."
                 className="w-full h-48 bg-white/20 border border-white/60 rounded-[1.5rem] p-6 text-sm text-ink outline-none focus:ring-4 ring-primary/10 transition-all resize-none font-light leading-relaxed"
