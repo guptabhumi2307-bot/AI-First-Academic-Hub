@@ -16,8 +16,7 @@ import {
   Trash2,
   BookOpen
 } from "lucide-react";
-import { GoogleGenAI, Type } from "@google/genai";
-import { neuralKeyManager } from "../lib/keyRotation";
+import { getGenAI } from "../lib/gemini";
 import { useFirebase } from "../contexts/FirebaseContext";
 import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, deleteDoc, doc } from "firebase/firestore";
 import { db, handleFirestoreError } from "../lib/firebase";
@@ -72,7 +71,7 @@ export const LessonScriptGenerator = () => {
     setGeneratedScript(null);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: neuralKeyManager.getNextKey() });
+      const ai = getGenAI();
       const prompt = `Generate a neuro-scientifically grounded lesson script for the topic: "${topic}".
       Include:
       1. 3 Engagement Hooks: Mind-blowing facts or questions to grab attention.
@@ -85,16 +84,16 @@ export const LessonScriptGenerator = () => {
         config: {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
-              engagementHooks: { type: Type.ARRAY, items: { type: Type.STRING } },
-              neuralCheckpoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+              engagementHooks: { type: "array", items: { type: "string" } },
+              neuralCheckpoints: { type: "array", items: { type: "string" } },
               analogies: {
-                type: Type.OBJECT,
+                type: "object",
                 properties: {
-                  beginner: { type: Type.STRING },
-                  intermediate: { type: Type.STRING },
-                  advanced: { type: Type.STRING }
+                  beginner: { type: "string" },
+                  intermediate: { type: "string" },
+                  advanced: { type: "string" }
                 },
                 required: ["beginner", "intermediate", "advanced"]
               }

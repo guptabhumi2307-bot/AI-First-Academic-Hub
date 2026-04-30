@@ -21,10 +21,9 @@ import {
   ChevronRight,
   Ear
 } from "lucide-react";
-import { GoogleGenAI, Modality } from "@google/genai";
-import { neuralKeyManager } from "../lib/keyRotation";
 import { Badge } from "./ui/Badge";
 import { Card } from "./ui/Card";
+import { getGenAI } from "../lib/gemini";
 
 export const AIAudioNotes = () => {
   const [topic, setTopic] = useState("");
@@ -83,7 +82,7 @@ export const AIAudioNotes = () => {
     setAudioUrl(null);
     setTranscript("");
 
-    const ai = new GoogleGenAI({ apiKey: neuralKeyManager.getNextKey() });
+    const ai = getGenAI();
 
     try {
       // Step 1: Generate Transcript
@@ -100,7 +99,7 @@ export const AIAudioNotes = () => {
         model: "gemini-3.1-flash-tts-preview",
         contents: [{ parts: [{ text: `Read this educational note clearly and warmly: ${text}` }] }],
         config: {
-          responseModalities: [Modality.AUDIO],
+          responseModalities: ["AUDIO"],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: 'Kore' },
@@ -109,11 +108,10 @@ export const AIAudioNotes = () => {
         },
       });
 
-      const base64Audio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const base64Audio = (ttsResponse as any).audioData;
       if (base64Audio) {
-        // We'll store it for manual play
         (window as any)._lastAudioBase64 = base64Audio;
-        setAudioUrl("generated"); // Dummy state to show UI
+        setAudioUrl("generated");
       }
     } catch (error) {
       console.error("AI Generation failed:", error);
