@@ -24,6 +24,7 @@ import {
 import { Badge } from "./ui/Badge";
 import { Card } from "./ui/Card";
 import { getGenAI } from "../lib/gemini";
+import { useFirebase } from "../contexts/FirebaseContext";
 
 export const AIAudioNotes = () => {
   const [topic, setTopic] = useState("");
@@ -75,6 +76,8 @@ export const AIAudioNotes = () => {
     }
   };
 
+  const { profile } = useFirebase();
+
   const handleGenerate = async () => {
     if (!topic.trim()) return;
 
@@ -85,13 +88,27 @@ export const AIAudioNotes = () => {
     const ai = getGenAI();
 
     try {
+      const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+      const subjectsList = studentSubjects.join(", ");
+
       // Step 1: Generate Transcript
       const textResponse = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Generate a clear, educational explanation (about 100-150 words) for the topic: "${topic}". Make it engaging and easy to understand for a student.`
+        contents: `You are Reo, an expert AI academic tutor. Your scope is strictly limited to the following subjects: [${subjectsList}].
+
+        CRITICAL RULES:
+        1. If the requested topic: "${topic}" is OUTSIDE of these subjects: [${subjectsList}], you MUST return the exact text: "UNSUPPORTED_SUBJECT".
+        2. If the topic is valid, generate a clear, educational explanation (about 100-150 words). Make it engaging and easy to understand for a student.`
       });
 
       const text = textResponse.text || "No explanation generated.";
+      
+      if (text.includes("UNSUPPORTED_SUBJECT")) {
+        alert(`I'm specialized only in your selected subjects: ${subjectsList}. Please choose a topic related to them!`);
+        setIsGenerating(false);
+        return;
+      }
+
       setTranscript(text);
 
       // Step 2: Generate Audio (TTS)

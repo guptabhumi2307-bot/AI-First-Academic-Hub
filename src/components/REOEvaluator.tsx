@@ -24,6 +24,8 @@ import {
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
 
+import { AssessmentGrader } from "./AssessmentGrader";
+
 const MOCK_STUDENTS = [
   { id: "1", name: "Alex Johnson", synergy: 94, status: "Excelling", gaps: ["Organic Nomenclature"], sentiment: "Dynamic", lastQuiz: 98, submissions: 12 },
   { id: "2", name: "Sarah Miller", synergy: 82, status: "Mastering", gaps: ["Stoichiometry"], sentiment: "Focusing", lastQuiz: 85, submissions: 10 },
@@ -33,6 +35,7 @@ const MOCK_STUDENTS = [
 ];
 
 export const REOEvaluator = () => {
+  const [activeTab, setActiveTab] = useState<"Roster" | "Grader">("Roster");
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [isScanning, setIsScanning] = useState(false);
 
@@ -53,6 +56,26 @@ export const REOEvaluator = () => {
            </div>
            <p className="text-ink-muted font-bold text-sm uppercase tracking-widest">Neural Progress & AI-Driven Assessment</p>
         </div>
+        
+        <div className="flex items-center gap-2 p-1 bg-white rounded-2xl border border-neutral-100 shadow-sm">
+          <button 
+            onClick={() => setActiveTab("Roster")}
+            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === "Roster" ? "bg-indigo-600 text-white shadow-lg" : "text-ink-muted hover:bg-neutral-50"
+            }`}
+          >
+            Class Insights
+          </button>
+          <button 
+            onClick={() => setActiveTab("Grader")}
+            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === "Grader" ? "bg-indigo-600 text-white shadow-lg" : "text-ink-muted hover:bg-neutral-50"
+            }`}
+          >
+            Neural Grader
+          </button>
+        </div>
+
         <button 
           onClick={runNeuralScan}
           className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-indigo-200 hover:scale-105 active:scale-95 transition-all flex items-center gap-3 group overflow-hidden relative"
@@ -70,9 +93,26 @@ export const REOEvaluator = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-        {/* Student Roster Sector */}
-        <div className="lg:col-span-4 space-y-4">
+      <AnimatePresence mode="wait">
+        {activeTab === "Grader" ? (
+          <motion.div
+            key="grader"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <AssessmentGrader />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="roster"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-10"
+          >
+            {/* Student Roster Sector */}
+            <div className="lg:col-span-4 space-y-4">
           <div className="relative mb-6">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 font-bold" />
             <input 
@@ -235,7 +275,9 @@ export const REOEvaluator = () => {
              )}
            </AnimatePresence>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+</div>
   );
 };

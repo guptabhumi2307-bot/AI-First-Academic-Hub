@@ -164,6 +164,9 @@ export const SmartNotes = () => {
         throw new Error("Gemini API Key is missing.");
       }
 
+      const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+      const subjectsList = studentSubjects.join(", ");
+
       const contextForFlashcards = `
         Title: ${generatedNotes.title}
         Definition: ${generatedNotes.definition}
@@ -177,15 +180,18 @@ export const SmartNotes = () => {
       });
 
       const response = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: `Analyze these study notes and generate 5 highly relevant conceptual flashcards that test the user's understanding of key principles and terminology.
+        contents: [{ role: "user", parts: [{ text: `You are Reo, an expert AI academic tutor. Your scope is strictly limited to the following subjects: [${subjectsList}].
+
+        TASK: Analyze these study notes and generate 5 highly relevant conceptual flashcards that test the user's understanding of key principles and terminology.
+        
+        CRITICAL RULES:
+        1. If the notes provided are OUTSIDE of these subjects: [${subjectsList}], you MUST return a JSON object with an "error" property explaining that you only support their selected subjects.
+        2. Focus on higher-order thinking questions (Why/How) rather than just simple definitions.
+        3. Ensure answers are concise but academically rigorous.
+        4. Respond strictly with a JSON array of objects having "question" and "answer" properties.
         
         Notes Context:
-        ${contextForFlashcards}
-        
-        Requirements:
-        1. Focus on higher-order thinking questions (Why/How) rather than just simple definitions.
-        2. Ensure answers are concise but academically rigorous.
-        3. Respond strictly with a JSON array of objects having "question" and "answer" properties.` }] }],
+        ${contextForFlashcards}` }] }],
         config: {
           responseMimeType: "application/json",
         }
@@ -330,11 +336,17 @@ export const SmartNotes = () => {
         throw new Error("Gemini API Key is missing. Please add it to your environment.");
       }
 
+      const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+      const subjectsList = studentSubjects.join(", ");
+
       const parts: any[] = [
-        { text: `You are an elite academic synthesizer. Analyze the provided study material and generate a high-rigor structured study guide.
-        
-        Style: ${activeStyle === "Detailed" ? "Comprehensive, prioritizing deep mechanics and 'Why' explanations" : "Concise, prioritizing high-impact 'What' facts and speed-reading structures"}.
-        Tone: ${learningTone}. (If 'Simplified', use analogies and plain language. If 'Academic', use domain-specific jargon and formal structure. If 'Storytelling', frame concepts as a narrative journey).
+        { text: `You are Reo, an elite academic synthesizer. Your scope is strictly limited to the following subjects: [${subjectsList}].
+
+        CRITICAL RULES:
+        1. If the provided study material is OUTSIDE of these subjects: [${subjectsList}], you MUST return a JSON object with an "error" property explaining that you only support their selected subjects. Refuse to generate notes for unrelated topics.
+        2. If the topic is valid, generate a high-rigor structured study guide.
+        3. Style: ${activeStyle === "Detailed" ? "Comprehensive, prioritizing deep mechanics and 'Why' explanations" : "Concise, prioritizing high-impact 'What' facts and speed-reading structures"}.
+        4. Tone: ${learningTone}.
         
         Material to analyze:
         ${input ? `TEXT INPUT: "${input}"\n` : ""}
@@ -393,6 +405,11 @@ export const SmartNotes = () => {
       const text = response.text;
       if (!text) throw new Error("Empty AI response");
       const data = JSON.parse(text);
+      if (data.error) {
+        alert(data.error);
+        setGeneratedNotes(null);
+        return;
+      }
       setGeneratedNotes(data);
     } catch (error) {
       console.error("Notes Generation failed:", error);

@@ -24,6 +24,11 @@ class KeyRotator {
       "FOURTH_API_KEY",
       "FIFTH_API_KEY",
       "SIXTH_API_KEY",
+      "SEVENTH_API_KEY",
+      "EIGHTH_API_KEY",
+      "NINTH_API_KEY",
+      "TENTH_API_KEY",
+      "ELEVENTH_API_KEY",
       "YOUR_API_KEY",
       "INSERT_KEY_HERE"
     ];
@@ -34,14 +39,21 @@ class KeyRotator {
     const keysFromEnv: string[] = [];
     
     // Explicitly check keys so Vite's 'define' can replace them
-    const k0 = process.env.GEMINI_API_KEY;
-    const k1 = process.env.GEMINI_API_KEY_1;
-    const k2 = process.env.GEMINI_API_KEY_2;
-    const k3 = process.env.GEMINI_API_KEY_3;
-    const k4 = process.env.GEMINI_API_KEY_4;
-    const k5 = process.env.GEMINI_API_KEY_5;
+    const potentialKeys = [
+      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_1,
+      process.env.GEMINI_API_KEY_2,
+      process.env.GEMINI_API_KEY_3,
+      process.env.GEMINI_API_KEY_4,
+      process.env.GEMINI_API_KEY_5,
+      process.env.GEMINI_API_KEY_6,
+      process.env.GEMINI_API_KEY_7,
+      process.env.GEMINI_API_KEY_8,
+      process.env.GEMINI_API_KEY_9,
+      process.env.GEMINI_API_KEY_10,
+    ];
 
-    [k0, k1, k2, k3, k4, k5].forEach((k) => {
+    potentialKeys.forEach((k) => {
       if (this.isValidKey(k) && !keysFromEnv.includes(k!)) {
         keysFromEnv.push(k!);
       }

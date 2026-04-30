@@ -250,6 +250,9 @@ export const ResourceManager = () => {
       const base64 = await base64Promise;
 
       // 2. Get AI Insight
+      const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+      const subjectsList = studentSubjects.join(", ");
+
       const model = getGeminiModel({
         model: "gemini-3-flash-preview",
       });
@@ -258,7 +261,13 @@ export const ResourceManager = () => {
         contents: [{
           role: "user",
           parts: [
-            { text: `Analyze this study resource: ${file.name}. Provide a brief summary, key topics, and estimated difficulty level. Return as JSON with keys: summary, topics (array), difficulty.` },
+            { text: `You are Reo, an expert AI academic tutor. Your scope is strictly limited to the following subjects: [${subjectsList}].
+
+            TASK: Analyze this study resource: ${file.name}. Provide a brief summary, key topics, and estimated difficulty level. 
+            
+            CRITICAL RULES:
+            1. If the resource content is OUTSIDE of these subjects: [${subjectsList}], you MUST return a JSON object with an "error" property explaining that you only support their selected subjects.
+            2. If the topic is valid, return as JSON with keys: summary, topics (array), difficulty.` },
             { inlineData: { mimeType: file.type || "application/pdf", data: base64 } }
           ]
         }],
@@ -271,9 +280,14 @@ export const ResourceManager = () => {
       let insight = { summary: "No summary available", topics: [], difficulty: "Unknown" };
       try {
         const parsed = JSON.parse(insightText || "{}");
+        if (parsed.error) {
+          alert(parsed.error);
+          setIsUploading(false);
+          return;
+        }
         insight = {
           summary: parsed.summary || "No summary",
-          topics: parsed.topic || [],
+          topics: parsed.topics || [],
           difficulty: parsed.difficulty || "Unknown"
         };
       } catch (e) {
@@ -328,7 +342,17 @@ export const ResourceManager = () => {
         return;
       }
 
-      const prompt = `Context: This is a study resource titled "${selectedResource.title}". Summary: ${selectedResource.insight?.summary}. User Question: ${resourceQuestion}`;
+      const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+      const subjectsList = studentSubjects.join(", ");
+
+      const prompt = `You are Reo, an expert AI academic tutor. Your scope is strictly limited to the following subjects: [${subjectsList}].
+
+      CRITICAL RULES:
+      1. If the user asks about anything OUTSIDE of these subjects: [${subjectsList}], you MUST politely refuse to answer and remind them of your specialization.
+      2. If the question is related to the document but the document itself is about an unrelated topic, refuse to answer based on the subject restriction.
+      
+      CONTEXT: This is a study resource titled "${selectedResource.title}". Summary: ${selectedResource.insight?.summary}. 
+      USER QUESTION: ${resourceQuestion}`;
       
       const model = getGeminiModel({
         model: "gemini-3-flash-preview",

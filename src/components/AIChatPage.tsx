@@ -58,7 +58,7 @@ interface ChatSession {
 }
 
 export const AIChatPage = () => {
-  const { user } = useFirebase();
+  const { user, profile } = useFirebase();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(localStorage.getItem("last_active_chat"));
   const [messages, setMessages] = useState<Message[]>([
@@ -284,9 +284,22 @@ export const AIChatPage = () => {
     setAttachedFile(null);
     setIsLoading(true);
 
+    const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+    const subjectsList = studentSubjects.join(", ");
+
     const systemInstruction = {
       role: "user",
-      parts: [{ text: "SYSTEM INSTRUCTION: You are Reo, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly and answer questions related to it." }]
+      parts: [{ text: `SYSTEM INSTRUCTION: You are Reo, an expert AI academic tutor. 
+      Your scope is strictly limited to the following subjects: [${subjectsList}].
+      
+      CRITICAL RULES:
+      1. If the student asks about anything OUTSIDE of these subjects (e.g., general chat, non-academic topics, other subjects), you MUST politely refuse to answer and remind them that you are specialized only in their selected subjects: ${subjectsList}.
+      2. Do NOT provide answers for non-study related topics.
+      3. Provide highly structured, student-friendly responses for valid topics. 
+      4. Use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms.
+      5. Organize your output so it's easy to skim and understand. 
+      6. Use an academic but encouraging tone.
+      7. If a file is provided, analyze it only if it pertains to these subjects.` }]
     };
 
     try {

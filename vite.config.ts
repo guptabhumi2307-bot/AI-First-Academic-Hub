@@ -14,6 +14,11 @@ export default defineConfig(({mode}) => {
       'process.env.GEMINI_API_KEY_3': JSON.stringify(env.GEMINI_API_KEY_3),
       'process.env.GEMINI_API_KEY_4': JSON.stringify(env.GEMINI_API_KEY_4),
       'process.env.GEMINI_API_KEY_5': JSON.stringify(env.GEMINI_API_KEY_5),
+      'process.env.GEMINI_API_KEY_6': JSON.stringify(env.GEMINI_API_KEY_6),
+      'process.env.GEMINI_API_KEY_7': JSON.stringify(env.GEMINI_API_KEY_7),
+      'process.env.GEMINI_API_KEY_8': JSON.stringify(env.GEMINI_API_KEY_8),
+      'process.env.GEMINI_API_KEY_9': JSON.stringify(env.GEMINI_API_KEY_9),
+      'process.env.GEMINI_API_KEY_10': JSON.stringify(env.GEMINI_API_KEY_10),
     },
     resolve: {
       alias: {

@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { isDemoMode } from "../lib/firebase";
+import { isDemoMode, db } from "../lib/firebase";
 import { getGeminiModel } from "../lib/gemini";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Send, Bot, User, X, MessageSquare, Loader2, Mic, CircleStop, Volume2, RotateCcw, Paperclip, Trash2 } from "lucide-react";
 import { Modality } from "@google/genai";
+import { useFirebase } from "../contexts/FirebaseContext";
 
 import ReactMarkdown from "react-markdown";
 
@@ -18,6 +19,7 @@ interface Message {
 }
 
 export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+  const { profile } = useFirebase();
   const [messages, setMessages] = useState<Message[]>([
     { role: "model", text: "Hello! I'm Reo, your personal study assistant. How can I help you today?" }
   ]);
@@ -184,9 +186,22 @@ export const AIChat = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
         return;
       }
 
+      const studentSubjects = profile?.subjects || ["Quantum Mechanics", "Neural Biology", "Organic Chemistry"];
+      const subjectsList = studentSubjects.join(", ");
+
       const systemInstruction = {
         role: "user",
-        parts: [{ text: "SYSTEM INSTRUCTION: You are Reo, an expert AI academic tutor. Your goal is to provide highly structured, student-friendly responses. NEVER provide blocks of messy text. ALWAYS use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms. Organize your output so it's easy to skim and understand. Use academic but encouraging tone. If a file is provided, analyze it thoroughly." }]
+        parts: [{ text: `SYSTEM INSTRUCTION: You are Reo, an expert AI academic tutor. 
+        Your scope is strictly limited to the following subjects: [${subjectsList}].
+        
+        CRITICAL RULES:
+        1. If the student asks about anything OUTSIDE of these subjects (e.g., general chat, non-academic topics, other subjects), you MUST politely refuse to answer and remind them that you are specialized only in their selected subjects: ${subjectsList}.
+        2. Do NOT provide answers for non-study related topics.
+        3. Provide highly structured, student-friendly responses for valid topics.
+        4. Use clear headings (e.g., # Topic), bullet points for key facts, and **bold text** for important terms.
+        5. Organize your output so it's easy to skim and understand. 
+        6. Use an academic but encouraging tone.
+        7. If a file is provided, analyze it only if it pertains to these subjects.` }]
       };
 
       const messagesForGemini = [
